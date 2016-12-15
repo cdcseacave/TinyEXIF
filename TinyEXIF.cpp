@@ -1,0 +1,876 @@
+/*
+  TinyEXIF.cpp -- A simple ISO C++ library to parse basic EXIF and XMP
+                  information from a JPEG file.
+
+  Copyright (c) 2015-2016 Seacave
+  cdc.seacave@gmail.com
+  All rights reserved.
+
+  Based on the easyexif library (2013 version)
+    https://github.com/mayanklahiri/easyexif
+  of Mayank Lahiri (mlahiri@gmail.com).
+  
+  Redistribution and use in source and binary forms, with or without 
+  modification, are permitted provided that the following conditions are met:
+
+  -- Redistributions of source code must retain the above copyright notice, 
+     this list of conditions and the following disclaimer.
+  -- Redistributions in binary form must reproduce the above copyright notice, 
+     this list of conditions and the following disclaimer in the documentation 
+   and/or other materials provided with the distribution.
+
+   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY EXPRESS 
+   OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES 
+   OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN 
+   NO EVENT SHALL THE FREEBSD PROJECT OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, 
+   INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
+   BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, 
+   DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY 
+   OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
+   NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, 
+   EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+*/
+
+#include "TinyEXIF.h"
+#include "tinyxml2.h"
+#include <algorithm>
+#include <cstdint>
+#include <stdio.h>
+#include <vector>
+
+namespace TinyEXIF {
+
+enum JPEG_MARKERS {
+	JM_START = 0xFF,
+	JM_SOF0  = 0xC0,
+	JM_SOF1  = 0xC1,
+	JM_SOF2  = 0xC2,
+	JM_SOF3  = 0xC3,
+	JM_DHT   = 0xC4,
+	JM_SOF5  = 0xC5,
+	JM_SOF6  = 0xC6,
+	JM_SOF7  = 0xC7,
+	JM_JPG   = 0xC8,
+	JM_SOF9  = 0xC9,
+	JM_SOF10 = 0xCA,
+	JM_SOF11 = 0xCB,
+	JM_DAC   = 0xCC,
+	JM_SOF13 = 0xCD,
+	JM_SOF14 = 0xCE,
+	JM_SOF15 = 0xCF,
+	JM_RST0  = 0xD0,
+	JM_RST1  = 0xD1,
+	JM_RST2  = 0xD2,
+	JM_RST3  = 0xD3,
+	JM_RST4  = 0xD4,
+	JM_RST5  = 0xD5,
+	JM_RST6  = 0xD6,
+	JM_RST7  = 0xD7,
+	JM_SOI   = 0xD8,
+	JM_EOI   = 0xD9,
+	JM_SOS   = 0xDA,
+	JM_DQT	 = 0xDB,
+	JM_DNL	 = 0xDC,
+	JM_DRI	 = 0xDD,
+	JM_DHP	 = 0xDE,
+	JM_EXP	 = 0xDF,
+	JM_APP0	 = 0xE0,
+	JM_APP1  = 0xE1, // EXIF and XMP
+	JM_APP2  = 0xE2,
+	JM_APP3  = 0xE3,
+	JM_APP4  = 0xE4,
+	JM_APP5  = 0xE5,
+	JM_APP6  = 0xE6,
+	JM_APP7  = 0xE7,
+	JM_APP8  = 0xE8,
+	JM_APP9  = 0xE9,
+	JM_APP10 = 0xEA,
+	JM_APP11 = 0xEB,
+	JM_APP12 = 0xEC,
+	JM_APP13 = 0xED, // IPTC
+	JM_APP14 = 0xEE,
+	JM_APP15 = 0xEF,
+	JM_JPG0	 = 0xF0,
+	JM_JPG1	 = 0xF1,
+	JM_JPG2	 = 0xF2,
+	JM_JPG3	 = 0xF3,
+	JM_JPG4	 = 0xF4,
+	JM_JPG5	 = 0xF5,
+	JM_JPG6	 = 0xF6,
+	JM_JPG7	 = 0xF7,
+	JM_JPG8	 = 0xF8,
+	JM_JPG9	 = 0xF9,
+	JM_JPG10 = 0xFA,
+	JM_JPG11 = 0xFB,
+	JM_JPG12 = 0xFC,
+	JM_JPG13 = 0xFD,
+	JM_COM   = 0xFE
+};
+
+
+// Parser helper
+class EntryParser {
+private:
+	const uint8_t* buf;
+	const unsigned len;
+	const unsigned tiff_header_start;
+	const bool alignIntel; // byte alignment (defined in EXIF header)
+	unsigned offs; // current offset into buffer
+	uint16_t tag, format;
+	uint32_t length, data;
+
+public:
+	EntryParser(const uint8_t* _buf, unsigned _len, unsigned _tiff_header_start, bool _alignIntel)
+		: buf(_buf), tiff_header_start(_tiff_header_start), len(_len), alignIntel(_alignIntel), offs(0) {}
+
+	void Init(unsigned _offs) {
+		offs = _offs - 12;
+	}
+
+	uint16_t ParseTag() {
+		offs  += 12;
+		tag    = parse16(buf + offs, alignIntel);
+		format = parse16(buf + offs + 2, alignIntel);
+		length = parse32(buf + offs + 4, alignIntel);
+		data   = parse32(buf + offs + 8, alignIntel);
+		return tag;
+	}
+
+	uint16_t GetTag() const { return tag; }
+	uint16_t GetFormat() const { return format; }
+	uint32_t GetLength() const { return length; }
+	uint32_t GetData() const { return data; }
+
+	bool Fetch(std::string& val) const {
+		if (format != 2)
+			return false;
+		val = parseEXIFString(buf, length, data, tiff_header_start, len, alignIntel);
+		return true;
+	}
+
+	bool Fetch(int8_t& val) const {
+		if (format != 2)
+			return false;
+		val = (int8_t)parse16(buf + offs + 8, alignIntel);
+		return true;
+	}
+
+	bool Fetch(uint16_t& val) const {
+		if (format != 3)
+			return false;
+		val = parse16(buf + offs + 8, alignIntel);
+		return true;
+	}
+
+	bool Fetch(uint32_t& val) const {
+		if (format != 4)
+			return false;
+		val = data;
+		return true;
+	}
+
+	bool Fetch(double& val) const {
+		if (format != 5)
+			return false;
+		val = parseEXIFRational(buf + data + tiff_header_start, alignIntel);
+		return true;
+	}
+	bool Fetch(double& val, uint32_t idx) const {
+		if (format != 5 || length <= idx)
+			return false;
+		val = parseEXIFRational(buf + data + tiff_header_start + idx*8, alignIntel);
+		return true;
+	}
+
+	unsigned FetchSubIFD() const {
+		return tiff_header_start + data;
+	}
+
+public:
+	static uint16_t parse16(const uint8_t* buf, bool intel) {
+		if (intel)
+			return ((uint16_t)buf[1]<<8) | buf[0];
+		return ((uint16_t)buf[0]<<8) | buf[1];
+	}
+
+	static uint32_t parse32(const uint8_t* buf, bool intel) {
+		if (intel)
+			return ((uint32_t)buf[3]<<24) |
+				((uint32_t)buf[2]<<16) |
+				((uint32_t)buf[1]<<8)  |
+				buf[0];
+
+		return ((uint32_t)buf[0]<<24) |
+			((uint32_t)buf[1]<<16) |
+			((uint32_t)buf[2]<<8)  |
+			buf[3];
+	}
+
+	static double parseEXIFRational(const uint8_t* buf, bool intel) {
+		const uint32_t denominator = parse32(buf+4, intel);
+		if (denominator == 0)
+			return 0.0;
+		const uint32_t numerator = parse32(buf, intel);
+		return (double)numerator/(double)denominator;
+	}
+
+	static std::string parseEXIFString(const uint8_t* buf,
+		unsigned num_components,
+		unsigned data,
+		unsigned base,
+		unsigned len,
+		bool intel)
+	{
+		std::string value;
+		if (num_components <= 4) {
+			value.resize(num_components);
+			char j = intel ? 0 : 24;
+			char j_m = intel ? -8 : 8;
+			for (unsigned i=0; i<num_components; ++i, j -= j_m)
+				value[i] = data >> j & 0xff;
+			if (value[num_components-1] == '\0')
+				value.resize(num_components-1);
+		} else
+		if (base+data+num_components <= len) {
+			const char* const sz((const char*)buf+base+data);
+			if (sz[--num_components] == '\0')
+				while (num_components && sz[num_components-1] == '\0')
+					--num_components;
+			value.assign(sz, num_components);
+		}
+		return value;
+	}
+};
+
+
+//
+// Locates the JM_APP1 segment and parses it using
+// parseFromEXIFSegment() or parseFromXMPSegment()
+//
+int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
+	// Sanity check: all JPEG files start with 0xFFD8 and end with 0xFFD9
+	// This check also ensures that the user has supplied a correct value for len.
+	if (!buf || len < 16)
+		return PARSE_EXIF_ERROR_NO_EXIF;
+	if (buf[0] != JM_START || buf[1] != JM_SOI)
+		return PARSE_EXIF_ERROR_NO_JPEG;
+	// not always valid, sometimes 0xFF is added for padding
+	//if (buf[len-2] != JM_START || buf[len-1] != JM_EOI)
+	//  return PARSE_EXIF_ERROR_NO_JPEG;
+
+	// Scan for JM_APP1 header (bytes 0xFF 0xE1) and parse its length.
+	// Exit if both EXIF and XMP sections were parsed.
+	enum {
+		APP1_NA = 0,
+		APP1_EXIF = (1 << 0),
+		APP1_XMP = (1 << 1),
+		APP1_ALL = APP1_EXIF|APP1_XMP
+	};
+	struct APP1S {
+		uint32_t val;
+		inline APP1S() : val(APP1_NA) {}
+		inline operator uint32_t () const { return val; }
+		inline operator uint32_t& () { return val; }
+		inline int operator () (int code=PARSE_EXIF_ERROR_NO_EXIF) const { return (val&APP1_EXIF) == 0 ? code : (int)PARSE_EXIF_SUCCESS; }
+	} app1s;
+	for (unsigned pos=2; pos<len; ) {
+		// find next marker
+		uint8_t marker, prev(0);
+		do {
+			marker = buf[pos++];
+			if (marker != JM_START && prev == JM_START)
+				break;
+			prev = marker;
+		} while (pos<len);
+		// select marker
+		switch (marker) {
+		case 0x00:
+		case 0x01:
+		case JM_RST0:
+		case JM_RST1:
+		case JM_RST2:
+		case JM_RST3:
+		case JM_RST4:
+		case JM_RST5:
+		case JM_RST6:
+		case JM_RST7:
+		case JM_SOI:
+			break;
+		case JM_SOS: // start of stream: and we're done
+		case JM_EOI: // no data? not good
+			return app1s();
+		case JM_APP1: {
+			const uint16_t section_length(EntryParser::parse16(buf + pos, false));
+			int ret;
+			switch (ret=parseFromEXIFSegment(buf + pos + 2, section_length - 2)) {
+			case PARSE_EXIF_ERROR_NO_EXIF:
+				switch (ret=parseFromXMPSegment(buf + pos + 2, section_length - 2)) {
+				case PARSE_EXIF_ERROR_NO_XMP:
+					break;
+				case PARSE_EXIF_SUCCESS:
+					if ((app1s|=APP1_XMP) == APP1_ALL)
+						return PARSE_EXIF_SUCCESS;
+					break;
+				default:
+					return app1s(ret); // some error
+				}
+				break;
+			case PARSE_EXIF_SUCCESS:
+				if ((app1s|=APP1_EXIF) == APP1_ALL)
+					return PARSE_EXIF_SUCCESS;
+				break;
+			default:
+				return app1s(ret); // some error
+			}
+		}
+		default: {
+			// read section length
+			const uint16_t section_length(EntryParser::parse16(buf + pos, false));
+			if (pos + section_length > len)
+				return app1s(PARSE_EXIF_ERROR_NO_JPEG);
+			// skip the section
+			pos += section_length;
+		}
+		}
+	}
+	return app1s();
+}
+
+int EXIFInfo::parseFrom(const std::string &data) {
+	return parseFrom((const uint8_t*)data.data(), (unsigned)data.length());
+}
+
+//
+// Main parsing function for an EXIF segment.
+// Do a sanity check by looking for bytes "Exif\0\0".
+// The marker has to contain at least the TIFF header, otherwise the
+// JM_APP1 data is corrupt. So the minimum length specified here has to be:
+//   6 bytes: "Exif\0\0" std::string
+//   2 bytes: TIFF header (either "II" or "MM" std::string)
+//   2 bytes: TIFF magic (short 0x2a00 in Motorola byte order)
+//   4 bytes: Offset to first IFD
+// =========
+//  14 bytes
+//
+// PARAM: 'buf' start of the EXIF TIFF, which must be the bytes "Exif\0\0".
+// PARAM: 'len' length of buffer
+//
+int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
+	unsigned offs = 0;        // current offset into buffer
+	if (!buf || len < 6)
+		return PARSE_EXIF_ERROR_NO_EXIF;
+
+	if (!std::equal(buf, buf+6, "Exif\0\0"))
+		return PARSE_EXIF_ERROR_NO_EXIF;
+	offs += 6;
+
+	// Now parsing the TIFF header. The first two bytes are either "II" or
+	// "MM" for Intel or Motorola byte alignment. Sanity check by parsing
+	// the uint16_t that follows, making sure it equals 0x2a. The
+	// last 4 bytes are an offset into the first IFD, which are added to 
+	// the global offset counter. For this block, we expect the following
+	// minimum size:
+	//  2 bytes: 'II' or 'MM'
+	//  2 bytes: 0x002a
+	//  4 bytes: offset to first IDF
+	// -----------------------------
+	//  8 bytes
+	if (offs + 8 > len)
+		return PARSE_EXIF_ERROR_CORRUPT;
+	const unsigned tiff_header_start = offs;
+	if (buf[offs] == 'I' && buf[offs+1] == 'I')
+		this->ByteAlign = 1;
+	else {
+		if (buf[offs] == 'M' && buf[offs+1] == 'M')
+			this->ByteAlign = 0;
+		else
+			return PARSE_EXIF_ERROR_UNKNOWN_BYTEALIGN;
+	}
+	offs += 2;
+	if (0x2a != EntryParser::parse16(buf + offs, alignIntel()))
+		return PARSE_EXIF_ERROR_CORRUPT;
+	offs += 2;
+	const unsigned first_ifd_offset = EntryParser::parse32(buf + offs, alignIntel());
+	offs += first_ifd_offset - 4;
+	if (offs >= len)
+		return PARSE_EXIF_ERROR_CORRUPT;
+
+	// Now parsing the first Image File Directory (IFD0, for the main image).
+	// An IFD consists of a variable number of 12-byte directory entries. The
+	// first two bytes of the IFD section contain the number of directory
+	// entries in the section. The last 4 bytes of the IFD contain an offset
+	// to the next IFD, which means this IFD must contain exactly 6 + 12 * num
+	// bytes of data.
+	if (offs + 2 > len)
+		return PARSE_EXIF_ERROR_CORRUPT;
+	int num_entries = EntryParser::parse16(buf + offs, alignIntel());
+	if (offs + 6 + 12 * num_entries > len)
+		return PARSE_EXIF_ERROR_CORRUPT;
+	unsigned exif_sub_ifd_offset = len;
+	unsigned gps_sub_ifd_offset  = len;
+	EntryParser parser(buf, len, tiff_header_start, alignIntel());
+	parser.Init(offs+2);
+	while (--num_entries >= 0) {
+		switch (parser.ParseTag()) {
+		case 0x102:
+			// Bits per sample
+			parser.Fetch(this->BitsPerSample);
+			break;
+
+		case 0x10E:
+			// Image description
+			parser.Fetch(this->ImageDescription);
+			break;
+
+		case 0x10F:
+			// Camera maker
+			parser.Fetch(this->Make);
+			break;
+
+		case 0x110:
+			// Camera model
+			parser.Fetch(this->Model);
+			break;
+
+		case 0x112:
+			// Orientation of image
+			parser.Fetch(this->Orientation);
+			break;
+
+		case 0x011a:
+			// XResolution 
+			parser.Fetch(this->XResolution);
+			break;
+
+		case 0x011b:
+			// YResolution 
+			parser.Fetch(this->YResolution);
+			break;
+
+		case 0x128:
+			// Resolution Unit
+			parser.Fetch(this->ResolutionUnit);
+			break;
+
+		case 0x131:
+			// Software used for image
+			parser.Fetch(this->Software);
+			break;
+
+		case 0x132:
+			// EXIF/TIFF date/time of image modification
+			parser.Fetch(this->DateTime);
+			break;
+
+		case 0x8298:
+			// Copyright information
+			parser.Fetch(this->Copyright);
+			break;
+
+		case 0x8825:
+			// GPS IFS offset
+			gps_sub_ifd_offset = parser.FetchSubIFD();
+			break;
+
+		case 0x8769:
+			// EXIF SubIFD offset
+			exif_sub_ifd_offset = parser.FetchSubIFD();
+			break;
+		}
+	}
+
+	// Jump to the EXIF SubIFD if it exists and parse all the information
+	// there. Note that it's possible that the EXIF SubIFD doesn't exist.
+	// The EXIF SubIFD contains most of the interesting information that a
+	// typical user might want.
+	if (exif_sub_ifd_offset + 4 <= len) {
+		offs = exif_sub_ifd_offset;
+		int num_entries = EntryParser::parse16(buf + offs, alignIntel());
+		if (offs + 6 + 12 * num_entries > len)
+			return PARSE_EXIF_ERROR_CORRUPT;
+		parser.Init(offs+2);
+		while (--num_entries >= 0) {
+			switch (parser.ParseTag()) {
+			case 0x829a:
+				// Exposure time in seconds
+				parser.Fetch(this->ExposureTime);
+				break;
+
+			case 0x829d:
+				// FNumber
+				parser.Fetch(this->FNumber);
+				break;
+
+			case 0x8827:
+				// ISO Speed Rating
+				parser.Fetch(this->ISOSpeedRatings);
+				break;
+
+			case 0x9003:
+				// Original date and time
+				parser.Fetch(this->DateTimeOriginal);
+				break;
+
+			case 0x9004:
+				// Digitization date and time
+				parser.Fetch(this->DateTimeDigitized);
+				break;
+
+			case 0x9201:
+				// Shutter speed value
+				parser.Fetch(this->ShutterSpeedValue);
+				break;
+
+			case 0x9204:
+				// Exposure bias value 
+				parser.Fetch(this->ExposureBiasValue);
+				break;
+
+			case 0x9206:
+				// Subject distance
+				parser.Fetch(this->SubjectDistance);
+				break;
+
+			case 0x9209:
+				// Flash used
+				if (parser.GetFormat() == 3)
+					this->Flash = parser.GetData() ? 1 : 0;
+				break;
+
+			case 0x920a:
+				// Focal length
+				parser.Fetch(this->FocalLength);
+				break;
+
+			case 0x9207:
+				// Metering mode
+				parser.Fetch(this->MeteringMode);
+				break;
+
+			case 0x9291:
+				// Subsecond original time
+				parser.Fetch(this->SubSecTimeOriginal);
+				break;
+
+			case 0xa002:
+				// EXIF Image width
+				if (!parser.Fetch(this->ImageWidth)) {
+					uint16_t _ImageWidth;
+					if (parser.Fetch(_ImageWidth))
+						this->ImageWidth = _ImageWidth;
+				}
+				break;
+
+			case 0xa003:
+				// EXIF Image height
+				if (!parser.Fetch(this->ImageHeight)) {
+					uint16_t _ImageHeight;
+					if (parser.Fetch(_ImageHeight))
+						this->ImageHeight = _ImageHeight;
+				}
+				break;
+
+			case 0xa20e:
+				// Focal plane X resolution
+				parser.Fetch(this->LensInfo.FocalPlaneXResolution);
+				break;
+
+			case 0xa20f:
+				// Focal plane Y resolution
+				parser.Fetch(this->LensInfo.FocalPlaneYResolution);
+				break;
+
+			case 0xa210:
+				// Focal plane resolution unit
+				parser.Fetch(this->LensInfo.FocalPlaneResolutionUnit);
+				break;
+
+			case 0xa405:
+				// Focal length in 35mm film
+				if (!parser.Fetch(this->LensInfo.FocalLengthIn35mm)) {
+					uint16_t FocalLengthIn35mm;
+					if (parser.Fetch(FocalLengthIn35mm))
+						this->LensInfo.FocalLengthIn35mm = (double)FocalLengthIn35mm;
+				}
+				break;
+
+			case 0xa432:
+				// Focal length and FStop.
+				if (parser.Fetch(this->LensInfo.FocalLengthMin, 0))
+					if (parser.Fetch(this->LensInfo.FocalLengthMax, 1))
+						if (parser.Fetch(this->LensInfo.FStopMin, 2))
+							parser.Fetch(this->LensInfo.FStopMax, 3);
+				break;
+
+			case 0xa433:
+				// Lens make.
+				parser.Fetch(this->LensInfo.Make);
+				break;
+
+			case 0xa434:
+				// Lens model.
+				parser.Fetch(this->LensInfo.Model);
+				break;
+			}
+		}
+	}
+
+	// Jump to the GPS SubIFD if it exists and parse all the information
+	// there. Note that it's possible that the GPS SubIFD doesn't exist.
+	if (gps_sub_ifd_offset + 4 <= len) {
+		offs = gps_sub_ifd_offset;
+		int num_entries = EntryParser::parse16(buf + offs, alignIntel());
+		if (offs + 6 + 12 * num_entries > len)
+			return PARSE_EXIF_ERROR_CORRUPT;
+		parser.Init(offs+2);
+		while (--num_entries >= 0) {
+			switch (parser.ParseTag()) {
+			case 1:
+				// GPS north or south
+				parser.Fetch(this->GeoLocation.LatComponents.direction);
+				break;
+
+			case 2:
+				// GPS latitude
+				if (parser.GetFormat() == 5 && parser.GetLength() == 3) {
+					parser.Fetch(this->GeoLocation.LatComponents.degrees, 0);
+					parser.Fetch(this->GeoLocation.LatComponents.minutes, 1);
+					parser.Fetch(this->GeoLocation.LatComponents.seconds, 2);
+				}
+				break;
+
+			case 3:
+				// GPS east or west
+				parser.Fetch(this->GeoLocation.LonComponents.direction);
+				break;
+
+			case 4:
+				// GPS longitude
+				if (parser.GetFormat() == 5 && parser.GetLength() == 3) {
+					parser.Fetch(this->GeoLocation.LonComponents.degrees, 0);
+					parser.Fetch(this->GeoLocation.LonComponents.minutes, 1);
+					parser.Fetch(this->GeoLocation.LonComponents.seconds, 2);
+				}
+				break;
+
+			case 5:
+				// GPS altitude reference (below or above sea level)
+				parser.Fetch(this->GeoLocation.AltitudeRef);
+				break;
+
+			case 6:
+				// GPS altitude
+				parser.Fetch(this->GeoLocation.Altitude);
+				break;
+
+			case 7:
+				// GPS timestamp
+				if (parser.GetFormat() == 5 && parser.GetLength() == 3) {
+					double h,m,s;
+					parser.Fetch(h, 0);
+					parser.Fetch(m, 1);
+					parser.Fetch(s, 2);
+					char buffer[256];
+					snprintf(buffer, 256, "%f %f %f", h, m, s);
+					this->GeoLocation.GPSTimeStamp = buffer;
+				}
+				break;
+
+			case 11:
+				// Indicates the GPS DOP (data degree of precision)
+				parser.Fetch(this->GeoLocation.GPSDOP);
+				break;
+
+			case 18:
+				// GPS geodetic survey data
+				parser.Fetch(this->GeoLocation.GPSMapDatum);
+				break;
+
+			case 29:
+				// GPS date-stamp
+				parser.Fetch(this->GeoLocation.GPSDateStamp);
+				break;
+
+			case 30:
+				// GPS differential indicates whether differential correction is applied to the GPS receiver
+				parser.Fetch(this->GeoLocation.GPSDifferential);
+				break;
+			}
+		}
+		this->GeoLocation.parseCoords();
+	}
+
+	return PARSE_EXIF_SUCCESS;
+}
+
+//
+// Main parsing function for a XMP segment.
+// Do a sanity check by looking for bytes "http://ns.adobe.com/xap/1.0/\0".
+// So the minimum length specified here has to be:
+//  29 bytes: "http://ns.adobe.com/xap/1.0/\0" std::string
+//
+// PARAM: 'buf' start of the XMP header, which must be the bytes "http://ns.adobe.com/xap/1.0/\0".
+// PARAM: 'len' length of buffer
+//
+int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
+	struct Tools {
+		static const char* strrnstr(const char* haystack, const char* needle, size_t len) {
+			const size_t needle_len(strlen(needle));
+			if (0 == needle_len)
+				return haystack;
+			if (len <= needle_len)
+				return NULL;
+			for (size_t i=len-needle_len; i-- > 0; ) {
+				if (haystack[0] == needle[0] &&
+					0 == strncmp(haystack, needle, needle_len))
+					return haystack;
+				haystack++;
+			}
+			return NULL;
+		}
+	};
+
+	unsigned offs = 0; // current offset into buffer
+	if (!buf || len < 29)
+		return PARSE_EXIF_ERROR_NO_XMP;
+
+	if (!std::equal(buf, buf+29, "http://ns.adobe.com/xap/1.0/\0"))
+		return PARSE_EXIF_ERROR_NO_XMP;
+	offs += 29;
+	if (offs >= len)
+		return PARSE_EXIF_ERROR_CORRUPT;
+	len -= offs;
+
+	// Skip xpacket end section so that tinyxml2 lib parses the section correctly.
+	const char* const strXMP((const char*)(buf + offs)), *strEnd;
+	if ((strEnd=Tools::strrnstr(strXMP, "<?xpacket end=", len)) != NULL)
+		len = (unsigned)(strEnd - strXMP);
+
+	// Now try parsing the XML packet.
+	tinyxml2::XMLDocument doc;
+	tinyxml2::XMLElement* document;
+	if (doc.Parse(strXMP, len) != tinyxml2::XML_SUCCESS ||
+		((document=doc.FirstChildElement("x:xmpmeta")) == NULL && (document=doc.FirstChildElement("xmp:xmpmeta")) == NULL) ||
+		(document=document->FirstChildElement("rdf:RDF")) == NULL ||
+		(document=document->FirstChildElement("rdf:Description")) == NULL)
+		return PARSE_EXIF_SUCCESS;
+
+	// Now try parsing the XMP content of DJI.
+	document->QueryDoubleAttribute("drone-dji:AbsoluteAltitude", &GeoLocation.Altitude);
+	document->QueryDoubleAttribute("drone-dji:RelativeAltitude", &GeoLocation.RelativeAltitude);
+	document->QueryDoubleAttribute("drone-dji:FlightRollDegree", &GeoLocation.RollDegree);
+	document->QueryDoubleAttribute("drone-dji:FlightPitchDegree", &GeoLocation.PitchDegree);
+	document->QueryDoubleAttribute("drone-dji:FlightYawDegree", &GeoLocation.YawDegree);
+	return PARSE_EXIF_SUCCESS;
+}
+
+
+void EXIFInfo::Geolocation_t::parseCoords() {
+	// convert GPS latitude
+	if (LatComponents.degrees != DBL_MAX ||
+		LatComponents.minutes != 0 ||
+		LatComponents.seconds != 0) {
+		Latitude =
+			LatComponents.degrees +
+			LatComponents.minutes / 60 +
+			LatComponents.seconds / 3600;
+		if ('S' == LatComponents.direction)
+			Latitude = -Latitude;
+	}
+	// convert GPS longitude
+	if (LonComponents.degrees != DBL_MAX ||
+		LonComponents.minutes != 0 ||
+		LonComponents.seconds != 0) {
+		Longitude =
+			LonComponents.degrees +
+			LonComponents.minutes / 60 +
+			LonComponents.seconds / 3600;
+		if ('W' == LonComponents.direction)
+			Longitude = -Longitude;
+	}
+	// convert GPS altitude
+	if (hasAltitude() &&
+		AltitudeRef == 1) {
+		Altitude = -Altitude;
+	}
+}
+
+bool EXIFInfo::Geolocation_t::hasLatLon() const {
+	return Latitude != DBL_MAX && Longitude != DBL_MAX;
+}
+bool EXIFInfo::Geolocation_t::hasAltitude() const {
+	return Altitude != DBL_MAX;
+}
+bool EXIFInfo::Geolocation_t::hasRelativeAltitude() const {
+	return RelativeAltitude != DBL_MAX;
+}
+bool EXIFInfo::Geolocation_t::hasOrientation() const {
+	return RollDegree != DBL_MAX && PitchDegree != DBL_MAX && YawDegree != DBL_MAX;
+}
+
+
+void EXIFInfo::clear() {
+	// Strings
+	ImageDescription  = "";
+	Make              = "";
+	Model             = "";
+	Software          = "";
+	DateTime          = "";
+	DateTimeOriginal  = "";
+	DateTimeDigitized = "";
+	SubSecTimeOriginal= "";
+	Copyright         = "";
+
+	// Shorts / unsigned / double
+	ByteAlign         = 0;
+	Orientation       = 0;
+	BitsPerSample     = 0;
+	ExposureTime      = 0;
+	FNumber           = 0;
+	ISOSpeedRatings   = 0;
+	ShutterSpeedValue = 0;
+	ExposureBiasValue = 0;
+	SubjectDistance   = 0;
+	FocalLength       = 0;
+	Flash             = 0;
+	MeteringMode      = 0;
+	ImageWidth        = 0;
+	ImageHeight       = 0;
+
+	// LensInfo
+	LensInfo.FocalLengthMax = 0;
+	LensInfo.FocalLengthMin = 0;
+	LensInfo.FStopMax = 0;
+	LensInfo.FStopMin = 0;
+	LensInfo.FocalLengthIn35mm = 0;
+	LensInfo.FocalPlaneXResolution = 0;
+	LensInfo.FocalPlaneYResolution = 0;
+	LensInfo.FocalPlaneResolutionUnit = 0;
+	LensInfo.Make = "";
+	LensInfo.Model = "";
+
+	// Geolocation
+	GeoLocation.Latitude                = DBL_MAX;
+	GeoLocation.Longitude               = DBL_MAX;
+	GeoLocation.Altitude                = DBL_MAX;
+	GeoLocation.AltitudeRef             = 0;
+	GeoLocation.RelativeAltitude        = DBL_MAX;
+	GeoLocation.RollDegree              = DBL_MAX;
+	GeoLocation.PitchDegree             = DBL_MAX;
+	GeoLocation.YawDegree               = DBL_MAX;
+	GeoLocation.GPSDOP                  = 0;
+	GeoLocation.GPSDifferential         = 0;
+	GeoLocation.GPSMapDatum             = "";
+	GeoLocation.GPSTimeStamp            = "";
+	GeoLocation.GPSDateStamp            = "";
+	GeoLocation.LatComponents.degrees   = DBL_MAX;
+	GeoLocation.LatComponents.minutes   = 0;
+	GeoLocation.LatComponents.seconds   = 0;
+	GeoLocation.LatComponents.direction = 0;
+	GeoLocation.LonComponents.degrees   = DBL_MAX;
+	GeoLocation.LonComponents.minutes   = 0;
+	GeoLocation.LonComponents.seconds   = 0;
+	GeoLocation.LonComponents.direction = 0;
+}
+
+} // namespace TinyEXIF
