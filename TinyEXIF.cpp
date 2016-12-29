@@ -38,6 +38,15 @@
 #include <stdio.h>
 #include <vector>
 
+#ifdef _MSC_VER
+#include <tchar.h>
+#else
+#include <strings.h>
+#define _tcsncmp         	strncmp
+#define _tcsicmp         	strcasecmp
+#endif
+
+
 namespace TinyEXIF {
 
 enum JPEG_MARKERS {
@@ -345,8 +354,8 @@ int EXIFInfo::parseFrom(const std::string &data) {
 // Do a sanity check by looking for bytes "Exif\0\0".
 // The marker has to contain at least the TIFF header, otherwise the
 // JM_APP1 data is corrupt. So the minimum length specified here has to be:
-//   6 bytes: "Exif\0\0" std::string
-//   2 bytes: TIFF header (either "II" or "MM" std::string)
+//   6 bytes: "Exif\0\0" string
+//   2 bytes: TIFF header (either "II" or "MM" string)
 //   2 bytes: TIFF magic (short 0x2a00 in Motorola byte order)
 //   4 bytes: Offset to first IFD
 // =========
@@ -671,7 +680,7 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 					parser.Fetch(m, 1);
 					parser.Fetch(s, 2);
 					char buffer[256];
-					snprintf(buffer, 256, "%f %f %f", h, m, s);
+					snprintf(buffer, 256, "%g %g %g", h, m, s);
 					this->GeoLocation.GPSTimeStamp = buffer;
 				}
 				break;
@@ -707,7 +716,7 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 // Main parsing function for a XMP segment.
 // Do a sanity check by looking for bytes "http://ns.adobe.com/xap/1.0/\0".
 // So the minimum length specified here has to be:
-//  29 bytes: "http://ns.adobe.com/xap/1.0/\0" std::string
+//  29 bytes: "http://ns.adobe.com/xap/1.0/\0" string
 //
 // PARAM: 'buf' start of the XMP header, which must be the bytes "http://ns.adobe.com/xap/1.0/\0".
 // PARAM: 'len' length of buffer
@@ -722,7 +731,7 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 				return NULL;
 			for (size_t i=len-needle_len; i-- > 0; ) {
 				if (haystack[0] == needle[0] &&
-					0 == strncmp(haystack, needle, needle_len))
+					0 == _tcsncmp(haystack, needle, needle_len))
 					return haystack;
 				haystack++;
 			}
@@ -748,19 +757,35 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 
 	// Now try parsing the XML packet.
 	tinyxml2::XMLDocument doc;
-	tinyxml2::XMLElement* document;
+	const tinyxml2::XMLElement* document;
 	if (doc.Parse(strXMP, len) != tinyxml2::XML_SUCCESS ||
 		((document=doc.FirstChildElement("x:xmpmeta")) == NULL && (document=doc.FirstChildElement("xmp:xmpmeta")) == NULL) ||
 		(document=document->FirstChildElement("rdf:RDF")) == NULL ||
 		(document=document->FirstChildElement("rdf:Description")) == NULL)
 		return PARSE_EXIF_SUCCESS;
 
-	// Now try parsing the XMP content of DJI.
+	// Now try parsing the XMP content for projection type.
+	{
+	const tinyxml2::XMLElement* const element(document->FirstChildElement("GPano:ProjectionType"));
+	if (element != NULL) {
+		const char* const szProjectionType(element->GetText());
+		if (szProjectionType != NULL) {
+			if (0 == _tcsicmp(szProjectionType, "perspective"))
+				ProjectionType = 1;
+			else if (0 == _tcsicmp(szProjectionType, "equirectangular") ||
+					 0 == _tcsicmp(szProjectionType, "spherical"))
+				ProjectionType = 2;
+		}
+	}
+	}
+
+	// Now try parsing the XMP content for DJI info.
 	document->QueryDoubleAttribute("drone-dji:AbsoluteAltitude", &GeoLocation.Altitude);
 	document->QueryDoubleAttribute("drone-dji:RelativeAltitude", &GeoLocation.RelativeAltitude);
 	document->QueryDoubleAttribute("drone-dji:FlightRollDegree", &GeoLocation.RollDegree);
 	document->QueryDoubleAttribute("drone-dji:FlightPitchDegree", &GeoLocation.PitchDegree);
 	document->QueryDoubleAttribute("drone-dji:FlightYawDegree", &GeoLocation.YawDegree);
+
 	return PARSE_EXIF_SUCCESS;
 }
 
@@ -834,6 +859,7 @@ void EXIFInfo::clear() {
 	FocalLength       = 0;
 	Flash             = 0;
 	MeteringMode      = 0;
+	ProjectionType    = 0;
 	ImageWidth        = 0;
 	ImageHeight       = 0;
 

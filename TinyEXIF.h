@@ -36,6 +36,20 @@
 
 #include <string>
 
+#ifdef _MSC_VER
+#   ifdef TINYEXIF_EXPORT
+#       define TINYEXIF_LIB __declspec(dllexport)
+#   elif defined(TINYEXIF_IMPORT)
+#       define TINYEXIF_LIB __declspec(dllimport)
+#   else
+#       define TINYEXIF_LIB
+#   endif
+#elif __GNUC__ >= 4
+#   define TINYEXIF_LIB __attribute__((visibility("default")))
+#else
+#   define TINYEXIF_LIB
+#endif
+
 namespace TinyEXIF {
 
 enum ErrorCode {
@@ -47,10 +61,10 @@ enum ErrorCode {
 	PARSE_EXIF_ERROR_CORRUPT           = 5, // EXIF header was found, but data was corrupted
 };
 
-// 
+//
 // Class responsible for storing and parsing EXIF information from a JPEG blob
 //
-class EXIFInfo {
+class TINYEXIF_LIB EXIFInfo {
 public:
 	EXIFInfo() { clear(); }
 
@@ -118,6 +132,10 @@ public:
 									    // 3: spot
 									    // 4: multi-spot
 									    // 5: multi-segment
+	uint16_t ProjectionType;            // Projection type
+									    // 0: unknown projection
+									    // 1: perspective projection
+									    // 2: equirectangular/spherical projection
 	uint32_t ImageWidth;                // Image width reported in EXIF data
 	uint32_t ImageHeight;               // Image height reported in EXIF data
 	struct LensInfo_t {                 // Lens information
