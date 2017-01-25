@@ -126,7 +126,7 @@ private:
 	const bool alignIntel; // byte alignment (defined in EXIF header)
 	unsigned offs; // current offset into buffer
 	uint16_t tag, format;
-	uint32_t length, data;
+	uint32_t length;
 
 public:
 	EntryParser(const uint8_t* _buf, unsigned _len, unsigned _tiff_header_start, bool _alignIntel)
@@ -141,88 +141,79 @@ public:
 		tag    = parse16(buf + offs, alignIntel);
 		format = parse16(buf + offs + 2, alignIntel);
 		length = parse32(buf + offs + 4, alignIntel);
-		data   = parse32(buf + offs + 8, alignIntel);
 		return tag;
 	}
-
 	uint16_t GetTag() const { return tag; }
-	uint16_t GetFormat() const { return format; }
 	uint32_t GetLength() const { return length; }
-	uint32_t GetData() const { return data; }
+	uint32_t GetData() const { return parse32(buf + offs + 8, alignIntel); }
+	uint32_t GetSubIFD() const { return tiff_header_start + GetData(); }
+
+	bool IsRational() const { return format == 5 || format == 10; }
 
 	bool Fetch(std::string& val) const {
 		if (format != 2)
 			return false;
-		val = parseEXIFString(buf, length, data, tiff_header_start, len, alignIntel);
+		val = parseEXIFString(buf, length, GetData(), tiff_header_start, len, alignIntel);
 		return true;
 	}
-
-	bool Fetch(int8_t& val) const {
-		if (format != 2)
+	bool Fetch(uint8_t& val) const {
+		if (format != 1 && format != 2 && format != 6)
 			return false;
-		val = (int8_t)parse16(buf + offs + 8, alignIntel);
+		val = parse8(buf + offs + 8);
 		return true;
 	}
-
 	bool Fetch(uint16_t& val) const {
 		if (format != 3)
 			return false;
 		val = parse16(buf + offs + 8, alignIntel);
 		return true;
 	}
-
 	bool Fetch(uint32_t& val) const {
 		if (format != 4)
 			return false;
-		val = data;
+		val = parse32(buf + offs + 8, alignIntel);
 		return true;
 	}
-
 	bool Fetch(double& val) const {
-		if (format != 5)
+		if (!IsRational())
 			return false;
-		val = parseEXIFRational(buf + data + tiff_header_start, alignIntel);
+		val = parseEXIFRational(buf + GetSubIFD(), alignIntel);
 		return true;
 	}
 	bool Fetch(double& val, uint32_t idx) const {
-		if (format != 5 || length <= idx)
+		if (!IsRational() || length <= idx)
 			return false;
-		val = parseEXIFRational(buf + data + tiff_header_start + idx*8, alignIntel);
+		val = parseEXIFRational(buf + GetSubIFD() + idx*8, alignIntel);
 		return true;
 	}
 
-	unsigned FetchSubIFD() const {
-		return tiff_header_start + data;
-	}
-
 public:
+	static uint8_t parse8(const uint8_t* buf) {
+		return buf[0];
+	}
 	static uint16_t parse16(const uint8_t* buf, bool intel) {
 		if (intel)
 			return ((uint16_t)buf[1]<<8) | buf[0];
 		return ((uint16_t)buf[0]<<8) | buf[1];
 	}
-
 	static uint32_t parse32(const uint8_t* buf, bool intel) {
 		if (intel)
 			return ((uint32_t)buf[3]<<24) |
 				((uint32_t)buf[2]<<16) |
 				((uint32_t)buf[1]<<8)  |
 				buf[0];
-
 		return ((uint32_t)buf[0]<<24) |
 			((uint32_t)buf[1]<<16) |
 			((uint32_t)buf[2]<<8)  |
 			buf[3];
 	}
-
 	static double parseEXIFRational(const uint8_t* buf, bool intel) {
 		const uint32_t denominator = parse32(buf+4, intel);
 		if (denominator == 0)
 			return 0.0;
 		const uint32_t numerator = parse32(buf, intel);
-		return (double)numerator/(double)denominator;
+		return (double)(int32_t)numerator/(double)(int32_t)denominator;
 	}
-
 	static std::string parseEXIFString(const uint8_t* buf,
 		unsigned num_components,
 		unsigned data,
@@ -345,7 +336,7 @@ int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
 	return app1s();
 }
 
-int EXIFInfo::parseFrom(const std::string &data) {
+int EXIFInfo::parseFrom(const std::string& data) {
 	return parseFrom((const uint8_t*)data.data(), (unsigned)data.length());
 }
 
@@ -388,10 +379,10 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 		return PARSE_EXIF_ERROR_CORRUPT;
 	const unsigned tiff_header_start = offs;
 	if (buf[offs] == 'I' && buf[offs+1] == 'I')
-		this->ByteAlign = 1;
+		ByteAlign = 1;
 	else {
 		if (buf[offs] == 'M' && buf[offs+1] == 'M')
-			this->ByteAlign = 0;
+			ByteAlign = 0;
 		else
 			return PARSE_EXIF_ERROR_UNKNOWN_BYTEALIGN;
 	}
@@ -421,69 +412,96 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	parser.Init(offs+2);
 	while (--num_entries >= 0) {
 		switch (parser.ParseTag()) {
-		case 0x102:
+		case 0x0102:
 			// Bits per sample
-			parser.Fetch(this->BitsPerSample);
+			parser.Fetch(BitsPerSample);
 			break;
 
-		case 0x10E:
+		case 0x010e:
 			// Image description
-			parser.Fetch(this->ImageDescription);
+			parser.Fetch(ImageDescription);
 			break;
 
-		case 0x10F:
+		case 0x010f:
 			// Camera maker
-			parser.Fetch(this->Make);
+			parser.Fetch(Make);
 			break;
 
-		case 0x110:
+		case 0x0110:
 			// Camera model
-			parser.Fetch(this->Model);
+			parser.Fetch(Model);
 			break;
 
-		case 0x112:
+		case 0x0112:
 			// Orientation of image
-			parser.Fetch(this->Orientation);
+			parser.Fetch(Orientation);
 			break;
 
 		case 0x011a:
 			// XResolution 
-			parser.Fetch(this->XResolution);
+			parser.Fetch(XResolution);
 			break;
 
 		case 0x011b:
 			// YResolution 
-			parser.Fetch(this->YResolution);
+			parser.Fetch(YResolution);
 			break;
 
-		case 0x128:
+		case 0x0128:
 			// Resolution Unit
-			parser.Fetch(this->ResolutionUnit);
+			parser.Fetch(ResolutionUnit);
 			break;
 
-		case 0x131:
+		case 0x0131:
 			// Software used for image
-			parser.Fetch(this->Software);
+			parser.Fetch(Software);
 			break;
 
-		case 0x132:
+		case 0x0132:
 			// EXIF/TIFF date/time of image modification
-			parser.Fetch(this->DateTime);
+			parser.Fetch(DateTime);
+			break;
+
+		case 0x1001:
+			// Original Image width
+			if (!parser.Fetch(RelatedImageWidth)) {
+				uint16_t _RelatedImageWidth;
+				if (parser.Fetch(_RelatedImageWidth))
+					RelatedImageWidth = _RelatedImageWidth;
+			}
+			break;
+
+		case 0x1002:
+			// Original Image height
+			if (!parser.Fetch(RelatedImageHeight)) {
+				uint16_t _RelatedImageHeight;
+				if (parser.Fetch(_RelatedImageHeight))
+					RelatedImageHeight = _RelatedImageHeight;
+			}
 			break;
 
 		case 0x8298:
 			// Copyright information
-			parser.Fetch(this->Copyright);
-			break;
-
-		case 0x8825:
-			// GPS IFS offset
-			gps_sub_ifd_offset = parser.FetchSubIFD();
+			parser.Fetch(Copyright);
 			break;
 
 		case 0x8769:
 			// EXIF SubIFD offset
-			exif_sub_ifd_offset = parser.FetchSubIFD();
+			exif_sub_ifd_offset = parser.GetSubIFD();
+			break;
+
+		case 0x8825:
+			// GPS IFS offset
+			gps_sub_ifd_offset = parser.GetSubIFD();
+			break;
+
+		case 0xa405:
+			// Focal length in 35mm film
+			if (!parser.Fetch(LensInfo.FocalLengthIn35mm)) {
+				uint16_t _FocalLengthIn35mm;
+				if (parser.Fetch(_FocalLengthIn35mm))
+					LensInfo.FocalLengthIn35mm = (double)_FocalLengthIn35mm;
+			}
 			break;
 		}
 	}
@@ -502,123 +520,132 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 			switch (parser.ParseTag()) {
 			case 0x829a:
 				// Exposure time in seconds
-				parser.Fetch(this->ExposureTime);
+				parser.Fetch(ExposureTime);
 				break;
 
 			case 0x829d:
 				// FNumber
-				parser.Fetch(this->FNumber);
+				parser.Fetch(FNumber);
 				break;
 
 			case 0x8827:
 				// ISO Speed Rating
-				parser.Fetch(this->ISOSpeedRatings);
+				parser.Fetch(ISOSpeedRatings);
 				break;
 
 			case 0x9003:
 				// Original date and time
-				parser.Fetch(this->DateTimeOriginal);
+				parser.Fetch(DateTimeOriginal);
 				break;
 
 			case 0x9004:
 				// Digitization date and time
-				parser.Fetch(this->DateTimeDigitized);
+				parser.Fetch(DateTimeDigitized);
 				break;
 
 			case 0x9201:
 				// Shutter speed value
-				parser.Fetch(this->ShutterSpeedValue);
+				parser.Fetch(ShutterSpeedValue);
+				break;
+
+			case 0x9202:
+				// Aperture value
+				parser.Fetch(ApertureValue);
+				break;
+
+			case 0x9203:
+				// Brightness value
+				parser.Fetch(BrightnessValue);
 				break;
 
 			case 0x9204:
 				// Exposure bias value 
-				parser.Fetch(this->ExposureBiasValue);
+				parser.Fetch(ExposureBiasValue);
 				break;
 
 			case 0x9206:
 				// Subject distance
-				parser.Fetch(this->SubjectDistance);
+				parser.Fetch(SubjectDistance);
 				break;
 
 			case 0x9209:
 				// Flash used
-				if (parser.GetFormat() == 3)
-					this->Flash = parser.GetData() ? 1 : 0;
+				parser.Fetch(Flash);
 				break;
 
 			case 0x920a:
 				// Focal length
-				parser.Fetch(this->FocalLength);
+				parser.Fetch(FocalLength);
 				break;
 
 			case 0x9207:
 				// Metering mode
-				parser.Fetch(this->MeteringMode);
+				parser.Fetch(MeteringMode);
 				break;
 
 			case 0x9291:
-				// Subsecond original time
-				parser.Fetch(this->SubSecTimeOriginal);
+				// Fractions of seconds for DateTimeOriginal
+				parser.Fetch(SubSecTimeOriginal);
 				break;
 
 			case 0xa002:
 				// EXIF Image width
-				if (!parser.Fetch(this->ImageWidth)) {
+				if (!parser.Fetch(ImageWidth)) {
 					uint16_t _ImageWidth;
 					if (parser.Fetch(_ImageWidth))
-						this->ImageWidth = _ImageWidth;
+						ImageWidth = _ImageWidth;
 				}
 				break;
 
 			case 0xa003:
 				// EXIF Image height
-				if (!parser.Fetch(this->ImageHeight)) {
+				if (!parser.Fetch(ImageHeight)) {
 					uint16_t _ImageHeight;
 					if (parser.Fetch(_ImageHeight))
-						this->ImageHeight = _ImageHeight;
+						ImageHeight = _ImageHeight;
 				}
 				break;
 
 			case 0xa20e:
 				// Focal plane X resolution
-				parser.Fetch(this->LensInfo.FocalPlaneXResolution);
+				parser.Fetch(LensInfo.FocalPlaneXResolution);
 				break;
 
 			case 0xa20f:
 				// Focal plane Y resolution
-				parser.Fetch(this->LensInfo.FocalPlaneYResolution);
+				parser.Fetch(LensInfo.FocalPlaneYResolution);
 				break;
 
 			case 0xa210:
 				// Focal plane resolution unit
-				parser.Fetch(this->LensInfo.FocalPlaneResolutionUnit);
+				parser.Fetch(LensInfo.FocalPlaneResolutionUnit);
 				break;
 
 			case 0xa405:
 				// Focal length in 35mm film
-				if (!parser.Fetch(this->LensInfo.FocalLengthIn35mm)) {
-					uint16_t FocalLengthIn35mm;
-					if (parser.Fetch(FocalLengthIn35mm))
-						this->LensInfo.FocalLengthIn35mm = (double)FocalLengthIn35mm;
+				if (!parser.Fetch(LensInfo.FocalLengthIn35mm)) {
+					uint16_t _FocalLengthIn35mm;
+					if (parser.Fetch(_FocalLengthIn35mm))
+						LensInfo.FocalLengthIn35mm = (double)_FocalLengthIn35mm;
 				}
 				break;
 
 			case 0xa432:
 				// Focal length and FStop.
-				if (parser.Fetch(this->LensInfo.FocalLengthMin, 0))
-					if (parser.Fetch(this->LensInfo.FocalLengthMax, 1))
-						if (parser.Fetch(this->LensInfo.FStopMin, 2))
-							parser.Fetch(this->LensInfo.FStopMax, 3);
+				if (parser.Fetch(LensInfo.FocalLengthMin, 0))
+					if (parser.Fetch(LensInfo.FocalLengthMax, 1))
+						if (parser.Fetch(LensInfo.FStopMin, 2))
+							parser.Fetch(LensInfo.FStopMax, 3);
 				break;
 
 			case 0xa433:
 				// Lens make.
-				parser.Fetch(this->LensInfo.Make);
+				parser.Fetch(LensInfo.Make);
 				break;
 
 			case 0xa434:
 				// Lens model.
-				parser.Fetch(this->LensInfo.Model);
+				parser.Fetch(LensInfo.Model);
 				break;
 			}
 		}
@@ -636,77 +663,77 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 			switch (parser.ParseTag()) {
 			case 1:
 				// GPS north or south
-				parser.Fetch(this->GeoLocation.LatComponents.direction);
+				parser.Fetch(GeoLocation.LatComponents.direction);
 				break;
 
 			case 2:
 				// GPS latitude
-				if (parser.GetFormat() == 5 && parser.GetLength() == 3) {
-					parser.Fetch(this->GeoLocation.LatComponents.degrees, 0);
-					parser.Fetch(this->GeoLocation.LatComponents.minutes, 1);
-					parser.Fetch(this->GeoLocation.LatComponents.seconds, 2);
+				if (parser.IsRational() && parser.GetLength() == 3) {
+					parser.Fetch(GeoLocation.LatComponents.degrees, 0);
+					parser.Fetch(GeoLocation.LatComponents.minutes, 1);
+					parser.Fetch(GeoLocation.LatComponents.seconds, 2);
 				}
 				break;
 
 			case 3:
 				// GPS east or west
-				parser.Fetch(this->GeoLocation.LonComponents.direction);
+				parser.Fetch(GeoLocation.LonComponents.direction);
 				break;
 
 			case 4:
 				// GPS longitude
-				if (parser.GetFormat() == 5 && parser.GetLength() == 3) {
-					parser.Fetch(this->GeoLocation.LonComponents.degrees, 0);
-					parser.Fetch(this->GeoLocation.LonComponents.minutes, 1);
-					parser.Fetch(this->GeoLocation.LonComponents.seconds, 2);
+				if (parser.IsRational() && parser.GetLength() == 3) {
+					parser.Fetch(GeoLocation.LonComponents.degrees, 0);
+					parser.Fetch(GeoLocation.LonComponents.minutes, 1);
+					parser.Fetch(GeoLocation.LonComponents.seconds, 2);
 				}
 				break;
 
 			case 5:
 				// GPS altitude reference (below or above sea level)
-				parser.Fetch(this->GeoLocation.AltitudeRef);
+				parser.Fetch((uint8_t&)GeoLocation.AltitudeRef);
 				break;
 
 			case 6:
 				// GPS altitude
-				parser.Fetch(this->GeoLocation.Altitude);
+				parser.Fetch(GeoLocation.Altitude);
 				break;
 
 			case 7:
 				// GPS timestamp
-				if (parser.GetFormat() == 5 && parser.GetLength() == 3) {
+				if (parser.IsRational() && parser.GetLength() == 3) {
 					double h,m,s;
 					parser.Fetch(h, 0);
 					parser.Fetch(m, 1);
 					parser.Fetch(s, 2);
 					char buffer[256];
 					snprintf(buffer, 256, "%g %g %g", h, m, s);
-					this->GeoLocation.GPSTimeStamp = buffer;
+					GeoLocation.GPSTimeStamp = buffer;
 				}
 				break;
 
 			case 11:
 				// Indicates the GPS DOP (data degree of precision)
-				parser.Fetch(this->GeoLocation.GPSDOP);
+				parser.Fetch(GeoLocation.GPSDOP);
 				break;
 
 			case 18:
 				// GPS geodetic survey data
-				parser.Fetch(this->GeoLocation.GPSMapDatum);
+				parser.Fetch(GeoLocation.GPSMapDatum);
 				break;
 
 			case 29:
 				// GPS date-stamp
-				parser.Fetch(this->GeoLocation.GPSDateStamp);
+				parser.Fetch(GeoLocation.GPSDateStamp);
 				break;
 
 			case 30:
 				// GPS differential indicates whether differential correction is applied to the GPS receiver
-				parser.Fetch(this->GeoLocation.GPSDifferential);
+				parser.Fetch(GeoLocation.GPSDifferential);
 				break;
 			}
 		}
-		this->GeoLocation.parseCoords();
+		GeoLocation.parseCoords();
 	}
 
 	return PARSE_EXIF_SUCCESS;
@@ -759,21 +786,21 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 	tinyxml2::XMLDocument doc;
 	const tinyxml2::XMLElement* document;
 	if (doc.Parse(strXMP, len) != tinyxml2::XML_SUCCESS ||
-		((document=doc.FirstChildElement("x:xmpmeta")) == NULL && (document=doc.FirstChildElement("xmp:xmpmeta")) == NULL) ||
-		(document=document->FirstChildElement("rdf:RDF")) == NULL ||
-		(document=document->FirstChildElement("rdf:Description")) == NULL)
+		((document=doc.FirstChildElement(_T("x:xmpmeta"))) == NULL && (document=doc.FirstChildElement(_T("xmp:xmpmeta"))) == NULL) ||
+		(document=document->FirstChildElement(_T("rdf:RDF"))) == NULL ||
+		(document=document->FirstChildElement(_T("rdf:Description"))) == NULL)
 		return PARSE_EXIF_SUCCESS;
 
 	// Now try parsing the XMP content for projection type.
 	{
-	const tinyxml2::XMLElement* const element(document->FirstChildElement("GPano:ProjectionType"));
+	const tinyxml2::XMLElement* const element(document->FirstChildElement(_T("GPano:ProjectionType")));
 	if (element != NULL) {
 		const char* const szProjectionType(element->GetText());
 		if (szProjectionType != NULL) {
-			if (0 == _tcsicmp(szProjectionType, "perspective"))
+			if (0 == _tcsicmp(szProjectionType, _T("perspective")))
 				ProjectionType = 1;
-			else if (0 == _tcsicmp(szProjectionType, "equirectangular") ||
-					 0 == _tcsicmp(szProjectionType, "spherical"))
+			else if (0 == _tcsicmp(szProjectionType, _T("equirectangular")) ||
+					 0 == _tcsicmp(szProjectionType, _T("spherical")))
 				ProjectionType = 2;
 		}
 	}
@@ -848,20 +875,24 @@ void EXIFInfo::clear() {
 
 	// Shorts / unsigned / double
 	ByteAlign         = 0;
+	ImageWidth        = 0;
+	ImageHeight       = 0;
+	RelatedImageWidth = 0;
+	RelatedImageHeight= 0;
 	Orientation       = 0;
 	BitsPerSample     = 0;
 	ExposureTime      = 0;
 	FNumber           = 0;
 	ISOSpeedRatings   = 0;
 	ShutterSpeedValue = 0;
+	ApertureValue     = 0;
+	BrightnessValue   = 0;
 	ExposureBiasValue = 0;
 	SubjectDistance   = 0;
 	FocalLength       = 0;
 	Flash             = 0;
 	MeteringMode      = 0;
 	ProjectionType    = 0;
-	ImageWidth        = 0;
-	ImageHeight       = 0;
 
 	// LensInfo
 	LensInfo.FocalLengthMax = 0;

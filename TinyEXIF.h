@@ -94,7 +94,11 @@ public:
 	bool alignIntel() const { return this->ByteAlign != 0; }
 
 	// Data fields filled out by parseFrom()
-	int8_t ByteAlign;                   // 0 = Motorola byte alignment, 1 = Intel 
+	uint8_t ByteAlign;                  // 0: Motorola byte alignment, 1: Intel 
+	uint32_t ImageWidth;                // Image width reported in EXIF data
+	uint32_t ImageHeight;               // Image height reported in EXIF data
+	uint32_t RelatedImageWidth;         // Original image width reported in EXIF data
+	uint32_t RelatedImageHeight;        // Original image height reported in EXIF data
 	std::string ImageDescription;       // Image description
 	std::string Make;                   // Camera manufacturer's name
 	std::string Model;                  // Camera model
@@ -122,10 +126,12 @@ public:
 	double FNumber;                     // F/stop
 	uint16_t ISOSpeedRatings;           // ISO speed
 	double ShutterSpeedValue;           // Shutter speed (reciprocal of exposure time)
+	double ApertureValue;               // The lens aperture
+	double BrightnessValue;             // The value of brightness
 	double ExposureBiasValue;           // Exposure bias value in EV
 	double SubjectDistance;             // Distance to focus point in meters
 	double FocalLength;                 // Focal length of lens in millimeters
-	int8_t Flash;                       // 0 = no flash, 1 = flash used
+	uint16_t Flash;                     // 0: no flash, >0: flash used
 	uint16_t MeteringMode;              // Metering mode
 									    // 1: average
 									    // 2: center weighted average
@@ -136,8 +142,6 @@ public:
 									    // 0: unknown projection
 									    // 1: perspective projection
 									    // 2: equirectangular/spherical projection
-	uint32_t ImageWidth;                // Image width reported in EXIF data
-	uint32_t ImageHeight;               // Image height reported in EXIF data
 	struct LensInfo_t {                 // Lens information
 		double FStopMin;                // Min aperture (f-stop)
 		double FStopMax;                // Max aperture (f-stop)
@@ -158,7 +162,7 @@ public:
 		double Latitude;                // Image latitude expressed as decimal
 		double Longitude;               // Image longitude expressed as decimal
 		double Altitude;                // Altitude in meters, relative to sea level
-		int8_t AltitudeRef;             // 0 = above sea level, -1 = below sea level
+		int8_t AltitudeRef;             // 0: above sea level, -1: below sea level
 		double RelativeAltitude;        // Relative altitude in meters
 		double RollDegree;              // Flight roll in degrees
 		double PitchDegree;             // Flight pitch in degrees
@@ -174,7 +178,7 @@ public:
 			double degrees;
 			double minutes;
 			double seconds;
-			int8_t direction;
+			uint8_t direction;
 		} LatComponents, LonComponents; // Latitude/Longitude expressed in deg/min/sec
 		void parseCoords();             // Convert Latitude/Longitude from deg/min/sec to decimal
 		bool hasLatLon() const;         // Return true if (lat,lon) is available
