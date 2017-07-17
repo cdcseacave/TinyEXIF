@@ -35,6 +35,7 @@
 #define __TINYEXIF_H__
 
 #include <string>
+#include <vector>
 
 #ifdef _MSC_VER
 #   ifdef TINYEXIF_EXPORT
@@ -124,6 +125,16 @@ public:
 	std::string Copyright;              // File copyright information
 	double ExposureTime;                // Exposure time in seconds
 	double FNumber;                     // F/stop
+	uint16_t ExposureProgram;           // Exposure program
+	                                    // 0: not defined
+	                                    // 1: manual
+	                                    // 2: normal program
+	                                    // 3: aperture priority
+	                                    // 4: shutter priority
+	                                    // 5: creative program
+	                                    // 6: action program
+	                                    // 7: portrait mode
+	                                    // 8: landscape mode
 	uint16_t ISOSpeedRatings;           // ISO speed
 	double ShutterSpeedValue;           // Shutter speed (reciprocal of exposure time)
 	double ApertureValue;               // The lens aperture
@@ -131,17 +142,61 @@ public:
 	double ExposureBiasValue;           // Exposure bias value in EV
 	double SubjectDistance;             // Distance to focus point in meters
 	double FocalLength;                 // Focal length of lens in millimeters
-	uint16_t Flash;                     // 0: no flash, >0: flash used
+	uint16_t Flash;                     // Flash info
+	                                    // Flash used (Flash&1)
+	                                    // 0: no flash, >0: flash used
+	                                    // Flash returned light status ((Flash & 6) >> 1)
+	                                    // 0: no strobe return detection function
+	                                    // 1: reserved
+	                                    // 2: strobe return light not detected
+	                                    // 3: strobe return light detected
+	                                    // Flash mode ((Flash & 24) >> 3)
+	                                    // 0: unknown
+	                                    // 1: compulsory flash firing
+	                                    // 2: compulsory flash suppression
+	                                    // 3: auto mode
+	                                    // Flash function ((Flash & 32) >> 5)
+	                                    // 0: flash function present, >0: no flash function
+	                                    // Flash red-eye ((Flash & 64) >> 6)
+	                                    // 0: no red-eye reduction mode or unknown, >0: red-eye reduction supported
 	uint16_t MeteringMode;              // Metering mode
-									    // 1: average
-									    // 2: center weighted average
-									    // 3: spot
-									    // 4: multi-spot
-									    // 5: multi-segment
+	                                    // 0: unknown
+	                                    // 1: average
+	                                    // 2: center weighted average
+	                                    // 3: spot
+	                                    // 4: multi-spot
+	                                    // 5: pattern
+	                                    // 6: partial
+	uint16_t LightSource;               // Kind of light source
+	                                    // 0: unknown
+	                                    // 1: daylight
+	                                    // 2: fluorescent
+	                                    // 3: tungsten (incandescent light)
+	                                    // 4: flash
+	                                    // 9: fine weather
+	                                    // 10: cloudy weather
+	                                    // 11: shade
+	                                    // 12: daylight fluorescent (D 5700 - 7100K)
+	                                    // 13: day white fluorescent (N 4600 - 5400K)
+	                                    // 14: cool white fluorescent (W 3900 - 4500K)
+	                                    // 15: white fluorescent (WW 3200 - 3700K)
+	                                    // 17: standard light A
+	                                    // 18: standard light B
+	                                    // 19: standard light C
+										// 20: D55
+										// 21: D65
+										// 22: D75
+										// 23: D50
+	                                    // 24: ISO studio tungsten
 	uint16_t ProjectionType;            // Projection type
 									    // 0: unknown projection
 									    // 1: perspective projection
 									    // 2: equirectangular/spherical projection
+	std::vector<uint16_t> SubjectArea;  // Location and area of the main subject in the overall scene expressed in relation to the upper left as origin, prior to rotation
+	                                    // 0: unknown
+	                                    // 2: location of the main subject as coordinates (first value is the X coordinate and second is the Y coordinate)
+	                                    // 3: area of the main subject as a circle (first value is the center X coordinate, second is the center Y coordinate, and third is the diameter)
+	                                    // 4: area of the main subject as a rectangle (first value is the center X coordinate, second is the center Y coordinate, third is the width of the area, and fourth is the height of the area)
 	struct LensInfo_t {                 // Lens information
 		double FStopMin;                // Min aperture (f-stop)
 		double FStopMax;                // Max aperture (f-stop)

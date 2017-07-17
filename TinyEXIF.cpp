@@ -148,6 +148,8 @@ public:
 	uint32_t GetData() const { return parse32(buf + offs + 8, alignIntel); }
 	uint32_t GetSubIFD() const { return tiff_header_start + GetData(); }
 
+	bool IsShort() const { return format == 3; }
+	bool IsLong() const { return format == 4; }
 	bool IsRational() const { return format == 5 || format == 10; }
 
 	bool Fetch(std::string& val) const {
@@ -163,13 +165,19 @@ public:
 		return true;
 	}
 	bool Fetch(uint16_t& val) const {
-		if (format != 3)
+		if (!IsShort())
 			return false;
 		val = parse16(buf + offs + 8, alignIntel);
 		return true;
 	}
+	bool Fetch(uint16_t& val, uint32_t idx) const {
+		if (!IsShort() || length <= idx)
+			return false;
+		val = parse16(buf + GetSubIFD() + idx*2, alignIntel);
+		return true;
+	}
 	bool Fetch(uint32_t& val) const {
-		if (format != 4)
+		if (!IsLong())
 			return false;
 		val = parse32(buf + offs + 8, alignIntel);
 		return true;
@@ -528,6 +536,11 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 				parser.Fetch(FNumber);
 				break;
 
+			case 0x8822:
+				// Exposure Program
+				parser.Fetch(ExposureProgram);
+				break;
+
 			case 0x8827:
 				// ISO Speed Rating
 				parser.Fetch(ISOSpeedRatings);
@@ -568,8 +581,18 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 				parser.Fetch(SubjectDistance);
 				break;
 
+			case 0x9207:
+				// Metering mode
+				parser.Fetch(MeteringMode);
+				break;
+
+			case 0x9208:
+				// Light source
+				parser.Fetch(LightSource);
+				break;
+
 			case 0x9209:
-				// Flash used
+				// Flash info
 				parser.Fetch(Flash);
 				break;
 
@@ -578,9 +601,13 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 				parser.Fetch(FocalLength);
 				break;
 
-			case 0x9207:
-				// Metering mode
-				parser.Fetch(MeteringMode);
+			case 0x9214:
+				// Subject area
+				if (parser.IsShort() && parser.GetLength() > 1) {
+					SubjectArea.resize(parser.GetLength());
+					for (uint32_t i=0; i<parser.GetLength(); ++i)
+						parser.Fetch(SubjectArea[i], i);
+				}
 				break;
 
 			case 0x9291:
@@ -883,6 +910,7 @@ void EXIFInfo::clear() {
 	BitsPerSample     = 0;
 	ExposureTime      = 0;
 	FNumber           = 0;
+	ExposureProgram   = 0;
 	ISOSpeedRatings   = 0;
 	ShutterSpeedValue = 0;
 	ApertureValue     = 0;
@@ -892,7 +920,9 @@ void EXIFInfo::clear() {
 	FocalLength       = 0;
 	Flash             = 0;
 	MeteringMode      = 0;
+	LightSource       = 0;
 	ProjectionType    = 0;
+	SubjectArea.clear();
 
 	// LensInfo
 	LensInfo.FocalLengthMax = 0;
