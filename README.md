@@ -37,3 +37,4 @@ int main(int argc, const char** argv) {
 	return 0;
 }
 ```
+See `main.cpp` for more details.

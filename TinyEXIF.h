@@ -62,6 +62,8 @@ enum ErrorCode {
 	PARSE_EXIF_ERROR_CORRUPT           = 5, // EXIF header was found, but data was corrupted
 };
 
+class EntryParser;
+
 //
 // Class responsible for storing and parsing EXIF information from a JPEG blob
 //
@@ -91,11 +93,16 @@ public:
 	// Set all data members to default values.
 	void clear();
 
-	// Return true if the memory alignment is Intel format.
-	bool alignIntel() const { return this->ByteAlign != 0; }
+private:
+	// Parse tag as Image IFD.
+	void parseIFDImage(EntryParser&, unsigned&, unsigned&);
+	// Parse tag as Exif IFD.
+	void parseIFDExif(EntryParser&);
+	// Parse tag as GPS IFD.
+	void parseIFDGPS(EntryParser&);
 
-	// Data fields filled out by parseFrom()
-	uint8_t ByteAlign;                  // 0: Motorola byte alignment, 1: Intel 
+public:
+	// Data fields
 	uint32_t ImageWidth;                // Image width reported in EXIF data
 	uint32_t ImageHeight;               // Image height reported in EXIF data
 	uint32_t RelatedImageWidth;         // Original image width reported in EXIF data
@@ -202,10 +209,11 @@ public:
 		double FStopMax;                // Max aperture (f-stop)
 		double FocalLengthMin;          // Min focal length (mm)
 		double FocalLengthMax;          // Max focal length (mm)
+		double DigitalZoomRatio;        // Digital zoom ratio when the image was shot
 		double FocalLengthIn35mm;       // Focal length in 35mm film
-		double FocalPlaneXResolution;   // Indicates the number of pixels in the image width (X) direction per FocalPlaneResolutionUnit on the camera focal plane (may not exist)
-		double FocalPlaneYResolution;   // Indicates the number of pixels in the image width (Y) direction per FocalPlaneResolutionUnit on the camera focal plane (may not exist)
-		uint16_t FocalPlaneResolutionUnit;// Indicates the unit for measuring FocalPlaneXResolution and FocalPlaneYResolution (may not exist)
+		double FocalPlaneXResolution;   // Number of pixels in the image width (X) direction per FocalPlaneResolutionUnit on the camera focal plane (may not exist)
+		double FocalPlaneYResolution;   // Number of pixels in the image width (Y) direction per FocalPlaneResolutionUnit on the camera focal plane (may not exist)
+		uint16_t FocalPlaneResolutionUnit;// Unit for measuring FocalPlaneXResolution and FocalPlaneYResolution (may not exist)
 										// 0: unspecified in EXIF data
 										// 1: no absolute unit of measurement
 										// 2: inch
@@ -222,12 +230,12 @@ public:
 		double RollDegree;              // Flight roll in degrees
 		double PitchDegree;             // Flight pitch in degrees
 		double YawDegree;               // Flight yaw in degrees
-		double GPSDOP;                  // Indicates the GPS DOP (data degree of precision)
-		uint16_t GPSDifferential;       // Indicates whether differential correction is applied to the GPS receiver (may not exist)
+		double GPSDOP;                  // GPS DOP (data degree of precision)
+		uint16_t GPSDifferential;       // Differential correction applied to the GPS receiver (may not exist)
 										// 0: measurement without differential correction
 										// 1: differential correction applied 
-		std::string GPSMapDatum;        // Indicates the geodetic survey data (may not exist)
-		std::string GPSTimeStamp;       // Indicates the time as UTC (Coordinated Universal Time) (may not exist)
+		std::string GPSMapDatum;        // Geodetic survey data (may not exist)
+		std::string GPSTimeStamp;       // Time as UTC (Coordinated Universal Time) (may not exist)
 		std::string GPSDateStamp;       // A character string recording date and time information relative to UTC (Coordinated Universal Time) YYYY:MM:DD (may not exist)
 		struct Coord_t {
 			double degrees;
