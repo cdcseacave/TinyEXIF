@@ -602,7 +602,7 @@ int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
 	// Sanity check: all JPEG files start with 0xFFD8 and end with 0xFFD9
 	// This check also ensures that the user has supplied a correct value for len.
 	if (!buf || len < 16)
-		return PARSE_ERROR_NO_EXIF;        //************************PARSE_EXIF_ERROR_NO_JPEG?
+		return PARSE_ERROR_NO_EXIF; 
 	if (buf[0] != JM_START || buf[1] != JM_SOI)
 		return PARSE_EXIF_ERROR_NO_JPEG;
 	// not always valid, sometimes 0xFF is added for padding
@@ -722,7 +722,7 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	// the global offset counter. For this block, we expect the following
 	// minimum size:
 	//  2 bytes: 'II' or 'MM'
-	//  2 bytes: 0x002a  √
+	//  2 bytes: 0x002a
 	//  4 bytes: offset to first IDF
 	// -----------------------------
 	//  8 bytes
