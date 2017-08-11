@@ -844,21 +844,21 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 	tinyxml2::XMLDocument doc;
 	const tinyxml2::XMLElement* document;
 	if (doc.Parse(strXMP, len) != tinyxml2::XML_SUCCESS ||
-		((document=doc.FirstChildElement(_T("x:xmpmeta"))) == NULL && (document=doc.FirstChildElement(_T("xmp:xmpmeta"))) == NULL) ||
-		(document=document->FirstChildElement(_T("rdf:RDF"))) == NULL ||
-		(document=document->FirstChildElement(_T("rdf:Description"))) == NULL)
+		((document=doc.FirstChildElement("x:xmpmeta")) == NULL && (document=doc.FirstChildElement("xmp:xmpmeta")) == NULL) ||
+		(document=document->FirstChildElement("rdf:RDF")) == NULL ||
+		(document=document->FirstChildElement("rdf:Description")) == NULL)
 		return PARSE_EXIF_SUCCESS;
 
 	// Now try parsing the XMP content for projection type.
 	{
-	const tinyxml2::XMLElement* const element(document->FirstChildElement(_T("GPano:ProjectionType")));
+	const tinyxml2::XMLElement* const element(document->FirstChildElement("GPano:ProjectionType"));
 	if (element != NULL) {
 		const char* const szProjectionType(element->GetText());
 		if (szProjectionType != NULL) {
-			if (0 == _tcsicmp(szProjectionType, _T("perspective")))
+			if (0 == _tcsicmp(szProjectionType, "perspective"))
 				ProjectionType = 1;
-			else if (0 == _tcsicmp(szProjectionType, _T("equirectangular")) ||
-					 0 == _tcsicmp(szProjectionType, _T("spherical")))
+			else if (0 == _tcsicmp(szProjectionType, "equirectangular") ||
+					 0 == _tcsicmp(szProjectionType, "spherical"))
 				ProjectionType = 2;
 		}
 	}
