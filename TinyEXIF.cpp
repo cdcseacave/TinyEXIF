@@ -36,6 +36,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
+#include <cfloat>
 #include <vector>
 #include <algorithm>
 
