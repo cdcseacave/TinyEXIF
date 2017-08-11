@@ -43,8 +43,10 @@
 #include <tchar.h>
 #else
 #include <strings.h>
+#include <float.h>
 #define _tcsncmp         	strncmp
 #define _tcsicmp         	strcasecmp
+#define _T
 #endif
 
 
@@ -600,7 +602,7 @@ int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
 	// Sanity check: all JPEG files start with 0xFFD8 and end with 0xFFD9
 	// This check also ensures that the user has supplied a correct value for len.
 	if (!buf || len < 16)
-		return PARSE_EXIF_ERROR_NO_EXIF;
+		return PARSE_ERROR_NO_EXIF;        //************************PARSE_EXIF_ERROR_NO_JPEG?
 	if (buf[0] != JM_START || buf[1] != JM_SOI)
 		return PARSE_EXIF_ERROR_NO_JPEG;
 	// not always valid, sometimes 0xFF is added for padding
@@ -611,8 +613,8 @@ int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
 	// Exit if both EXIF and XMP sections were parsed.
 	enum {
 		APP1_NA = 0,
-		APP1_EXIF = (1 << 0),
-		APP1_XMP = (1 << 1),
+		APP1_EXIF = 1,
+		APP1_XMP = 2,
 		APP1_ALL = APP1_EXIF|APP1_XMP
 	};
 	struct APP1S {
@@ -620,7 +622,7 @@ int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
 		inline APP1S() : val(APP1_NA) {}
 		inline operator uint32_t () const { return val; }
 		inline operator uint32_t& () { return val; }
-		inline int operator () (int code=PARSE_EXIF_ERROR_NO_EXIF) const { return (val&APP1_EXIF) == 0 ? code : (int)PARSE_EXIF_SUCCESS; }
+        inline int operator () (int code=PARSE_NO_EXIF_XMP) const { return (val==0)?code:((val==3)?PARSE_EXIF_XMP_SUCCESS:((val==1)?PARSE_EXIF_SUCCESS:PARSE_XMP_SUCCESS)); }
 	} app1s;
 	for (unsigned pos=2; pos<len; ) {
 		// find next marker
@@ -647,18 +649,18 @@ int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
 			break;
 		case JM_SOS: // start of stream: and we're done
 		case JM_EOI: // no data? not good
-			return app1s();
+            return app1s();
 		case JM_APP1: {
 			const uint16_t section_length(EntryParser::parse16(buf + pos, false));
 			int ret;
 			switch (ret=parseFromEXIFSegment(buf + pos + 2, section_length - 2)) {
-			case PARSE_EXIF_ERROR_NO_EXIF:
+			case PARSE_ERROR_NO_EXIF:
 				switch (ret=parseFromXMPSegment(buf + pos + 2, section_length - 2)) {
-				case PARSE_EXIF_ERROR_NO_XMP:
+				case PARSE_ERROR_NO_XMP:
 					break;
-				case PARSE_EXIF_SUCCESS:
+				case PARSE_XMP_SUCCESS:
 					if ((app1s|=APP1_XMP) == APP1_ALL)
-						return PARSE_EXIF_SUCCESS;
+						return PARSE_EXIF_XMP_SUCCESS;
 					break;
 				default:
 					return app1s(ret); // some error
@@ -666,7 +668,7 @@ int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
 				break;
 			case PARSE_EXIF_SUCCESS:
 				if ((app1s|=APP1_EXIF) == APP1_ALL)
-					return PARSE_EXIF_SUCCESS;
+					return PARSE_EXIF_XMP_SUCCESS;
 				break;
 			default:
 				return app1s(ret); // some error
@@ -707,10 +709,10 @@ int EXIFInfo::parseFrom(const std::string& data) {
 int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	unsigned offs = 0;        // current offset into buffer
 	if (!buf || len < 6)
-		return PARSE_EXIF_ERROR_NO_EXIF;
+		return PARSE_ERROR_NO_EXIF;
 
 	if (!std::equal(buf, buf+6, "Exif\0\0"))
-		return PARSE_EXIF_ERROR_NO_EXIF;
+		return PARSE_ERROR_NO_EXIF;
 	offs += 6;
 
 	// Now parsing the TIFF header. The first two bytes are either "II" or
@@ -720,7 +722,7 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	// the global offset counter. For this block, we expect the following
 	// minimum size:
 	//  2 bytes: 'II' or 'MM'
-	//  2 bytes: 0x002a
+	//  2 bytes: 0x002a  √
 	//  4 bytes: offset to first IDF
 	// -----------------------------
 	//  8 bytes
@@ -767,6 +769,7 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	// there. Note that it's possible that the EXIF SubIFD doesn't exist.
 	// The EXIF SubIFD contains most of the interesting information that a
 	// typical user might want.
+    
 	if (exif_sub_ifd_offset + 4 <= len) {
 		offs = exif_sub_ifd_offset;
 		int num_entries = EntryParser::parse16(buf + offs, alignIntel);
@@ -826,13 +829,13 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 
 	unsigned offs = 0; // current offset into buffer
 	if (!buf || len < 29)
-		return PARSE_EXIF_ERROR_NO_XMP;
+		return PARSE_ERROR_NO_XMP;
 
 	if (!std::equal(buf, buf+29, "http://ns.adobe.com/xap/1.0/\0"))
-		return PARSE_EXIF_ERROR_NO_XMP;
+		return PARSE_ERROR_NO_XMP;
 	offs += 29;
 	if (offs >= len)
-		return PARSE_EXIF_ERROR_CORRUPT;
+		return PARSE_XMP_ERROR_CORRUPT;
 	len -= offs;
 
 	// Skip xpacket end section so that tinyxml2 lib parses the section correctly.
@@ -847,7 +850,7 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 		((document=doc.FirstChildElement(_T("x:xmpmeta"))) == NULL && (document=doc.FirstChildElement(_T("xmp:xmpmeta"))) == NULL) ||
 		(document=document->FirstChildElement(_T("rdf:RDF"))) == NULL ||
 		(document=document->FirstChildElement(_T("rdf:Description"))) == NULL)
-		return PARSE_EXIF_SUCCESS;
+		return PARSE_ERROR_NO_XMP;
 
 	// Now try parsing the XMP content for projection type.
 	{
@@ -871,7 +874,7 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 	document->QueryDoubleAttribute("drone-dji:FlightPitchDegree", &GeoLocation.PitchDegree);
 	document->QueryDoubleAttribute("drone-dji:FlightYawDegree", &GeoLocation.YawDegree);
 
-	return PARSE_EXIF_SUCCESS;
+	return PARSE_XMP_SUCCESS;
 }
 
 
