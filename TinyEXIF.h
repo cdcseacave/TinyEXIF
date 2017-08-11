@@ -55,15 +55,15 @@ namespace TinyEXIF {
 
 enum ErrorCode {
 	PARSE_EXIF_SUCCESS                 = 0, // Parse EXIF was successful
-    PARSE_XMP_SUCCESS                  = 1, // Parse XMP was successful
-    PARSE_EXIF_XMP_SUCCESS             = 2, // Parse EXIF and XMP was successful
-    PARSE_NO_EXIF_XMP                  = 3, // No EXIF XMP data found in JPEG file
+        PARSE_XMP_SUCCESS                  = 1, // Parse XMP was successful
+        PARSE_EXIF_XMP_SUCCESS             = 2, // Parse EXIF and XMP was successful
+        PARSE_NO_EXIF_XMP                  = 3, // No EXIF XMP data found in JPEG file
 	PARSE_EXIF_ERROR_NO_JPEG           = 4, // No JPEG markers found in buffer, possibly invalid JPEG file
 	PARSE_ERROR_NO_EXIF                = 5, // No EXIF header found in JPEG file
 	PARSE_ERROR_NO_XMP                 = 6, // No XMP header found in JPEG file
 	PARSE_EXIF_ERROR_UNKNOWN_BYTEALIGN = 7, // Byte alignment specified in EXIF file was unknown (not Motorola or Intel)
 	PARSE_EXIF_ERROR_CORRUPT           = 8, // EXIF header was found, but data was corrupted
-    PARSE_XMP_ERROR_CORRUPT            = 9, // XMP header was found, but data was corrupted
+        PARSE_XMP_ERROR_CORRUPT            = 9, // XMP header was found, but data was corrupted
 };
 
 class EntryParser;
