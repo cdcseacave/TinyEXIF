@@ -29,8 +29,8 @@ int main(int argc, const char** argv)
 	file.read((char*)data.data(), length);
 
 	// parse image EXIF and XMP metadata
-	TinyEXIF::EXIFInfo imageEXIF;
-	if (imageEXIF.parseFrom(data.data(), (unsigned)length) == TinyEXIF::PARSE_EXIF_SUCCESS) {
+	TinyEXIF::EXIFInfo imageEXIF(data.data(), (unsigned)length);
+	if (imageEXIF.Fields) {
 		if (imageEXIF.ImageWidth || imageEXIF.ImageHeight)
 			std::cout << "ImageResolution " << imageEXIF.ImageWidth << "x" << imageEXIF.ImageHeight << " pixels" << "\n";
 		if (imageEXIF.RelatedImageWidth || imageEXIF.RelatedImageHeight)

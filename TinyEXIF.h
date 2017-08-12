@@ -54,12 +54,18 @@
 namespace TinyEXIF {
 
 enum ErrorCode {
-	PARSE_EXIF_SUCCESS                 = 0, // Parse was successful
-	PARSE_EXIF_ERROR_NO_JPEG           = 1, // No JPEG markers found in buffer, possibly invalid JPEG file
-	PARSE_EXIF_ERROR_NO_EXIF           = 2, // No EXIF header found in JPEG file
-	PARSE_EXIF_ERROR_NO_XMP            = 3, // No XMP header found in JPEG file
-	PARSE_EXIF_ERROR_UNKNOWN_BYTEALIGN = 4, // Byte alignment specified in EXIF file was unknown (not Motorola or Intel)
-	PARSE_EXIF_ERROR_CORRUPT           = 5, // EXIF header was found, but data was corrupted
+	PARSE_SUCCESS           = 0, // Parse EXIF and/or XMP was successful
+	PARSE_INVALID_JPEG      = 1, // No JPEG markers found in buffer, possibly invalid JPEG file
+	PARSE_UNKNOWN_BYTEALIGN = 2, // Byte alignment specified in EXIF file was unknown (neither Motorola nor Intel)
+	PARSE_ABSENT_DATA       = 3, // No EXIF and/or XMP data found in JPEG file
+	PARSE_CORRUPT_DATA      = 4, // EXIF and/or XMP header was found, but data was corrupted
+};
+
+enum FieldCode {
+	FIELD_NA                 = 0, // No EXIF or XMP data
+	FIELD_EXIF               = (1 << 0), // EXIF data available
+	FIELD_XMP                = (1 << 1), // XMP data available
+	FIELD_ALL                = FIELD_EXIF|FIELD_XMP
 };
 
 class EntryParser;
@@ -69,16 +75,18 @@ class EntryParser;
 //
 class TINYEXIF_LIB EXIFInfo {
 public:
-	EXIFInfo() { clear(); }
+	EXIFInfo();
+	EXIFInfo(const uint8_t* data, unsigned length);
+	EXIFInfo(const std::string& data);
 
-	// Parsing function for an entire JPEG image buffer.
+	// Parsing function for an entire JPEG image stream.
 	//
 	// PARAM 'data': A pointer to a JPEG image.
 	// PARAM 'length': The length of the JPEG image.
-	// RETURN:  PARSE_EXIF_SUCCESS (0) on success with 'result' filled out
-	//          error code otherwise, as defined by the PARSE_EXIF_ERROR_* macros
+	// RETURN:  PARSE_SUCCESS (0) on success with 'result' filled out
+	//          error code otherwise, as defined by the PARSE_* macros
 	int parseFrom(const uint8_t* data, unsigned length);
-	int parseFrom(const std::string &data);
+	int parseFrom(const std::string& data);
 
 	// Parsing function for an EXIF segment. This is used internally by parseFrom()
 	// but can be called for special cases where only the EXIF section is 
@@ -91,6 +99,7 @@ public:
 	int parseFromXMPSegment(const uint8_t* buf, unsigned len);
 
 	// Set all data members to default values.
+	// Should be called before parsing a new stream.
 	void clear();
 
 private:
@@ -103,6 +112,7 @@ private:
 
 public:
 	// Data fields
+	uint32_t Fields;                    // Store if EXIF and/or XMP data fields are available
 	uint32_t ImageWidth;                // Image width reported in EXIF data
 	uint32_t ImageHeight;               // Image height reported in EXIF data
 	uint32_t RelatedImageWidth;         // Original image width reported in EXIF data

@@ -36,6 +36,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
+#include <cfloat>
 #include <vector>
 #include <algorithm>
 
@@ -250,6 +251,17 @@ public:
 		return value;
 	}
 };
+
+
+// Constructors
+EXIFInfo::EXIFInfo() : Fields(FIELD_NA) {
+}
+EXIFInfo::EXIFInfo(const uint8_t* data, unsigned length) {
+	parseFrom(data, length);
+}
+EXIFInfo::EXIFInfo(const std::string& data) {
+	parseFrom(data);
+}
 
 
 // Parse tag as Image IFD
@@ -597,31 +609,27 @@ void EXIFInfo::parseIFDGPS(EntryParser& parser) {
 // parseFromEXIFSegment() or parseFromXMPSegment()
 //
 int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
+	clear();
+
 	// Sanity check: all JPEG files start with 0xFFD8 and end with 0xFFD9
 	// This check also ensures that the user has supplied a correct value for len.
 	if (!buf || len < 16)
-		return PARSE_EXIF_ERROR_NO_EXIF;
+		return PARSE_INVALID_JPEG;
 	if (buf[0] != JM_START || buf[1] != JM_SOI)
-		return PARSE_EXIF_ERROR_NO_JPEG;
+		return PARSE_INVALID_JPEG;
 	// not always valid, sometimes 0xFF is added for padding
 	//if (buf[len-2] != JM_START || buf[len-1] != JM_EOI)
-	//  return PARSE_EXIF_ERROR_NO_JPEG;
+	//  return PARSE_INVALID_JPEG;
 
 	// Scan for JM_APP1 header (bytes 0xFF 0xE1) and parse its length.
 	// Exit if both EXIF and XMP sections were parsed.
-	enum {
-		APP1_NA = 0,
-		APP1_EXIF = (1 << 0),
-		APP1_XMP = (1 << 1),
-		APP1_ALL = APP1_EXIF|APP1_XMP
-	};
 	struct APP1S {
-		uint32_t val;
-		inline APP1S() : val(APP1_NA) {}
+		uint32_t& val;
+		inline APP1S(uint32_t& v) : val(v) {}
 		inline operator uint32_t () const { return val; }
 		inline operator uint32_t& () { return val; }
-		inline int operator () (int code=PARSE_EXIF_ERROR_NO_EXIF) const { return (val&APP1_EXIF) == 0 ? code : (int)PARSE_EXIF_SUCCESS; }
-	} app1s;
+		inline int operator () (int code=PARSE_ABSENT_DATA) const { return val&FIELD_ALL ? (int)PARSE_SUCCESS : code; }
+	} app1s(Fields);
 	for (unsigned pos=2; pos<len; ) {
 		// find next marker
 		uint8_t marker, prev(0);
@@ -652,21 +660,21 @@ int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
 			const uint16_t section_length(EntryParser::parse16(buf + pos, false));
 			int ret;
 			switch (ret=parseFromEXIFSegment(buf + pos + 2, section_length - 2)) {
-			case PARSE_EXIF_ERROR_NO_EXIF:
+			case PARSE_ABSENT_DATA:
 				switch (ret=parseFromXMPSegment(buf + pos + 2, section_length - 2)) {
-				case PARSE_EXIF_ERROR_NO_XMP:
+				case PARSE_ABSENT_DATA:
 					break;
-				case PARSE_EXIF_SUCCESS:
-					if ((app1s|=APP1_XMP) == APP1_ALL)
-						return PARSE_EXIF_SUCCESS;
+				case PARSE_SUCCESS:
+					if ((app1s|=FIELD_XMP) == FIELD_ALL)
+						return PARSE_SUCCESS;
 					break;
 				default:
 					return app1s(ret); // some error
 				}
 				break;
-			case PARSE_EXIF_SUCCESS:
-				if ((app1s|=APP1_EXIF) == APP1_ALL)
-					return PARSE_EXIF_SUCCESS;
+			case PARSE_SUCCESS:
+				if ((app1s|=FIELD_EXIF) == FIELD_ALL)
+					return PARSE_SUCCESS;
 				break;
 			default:
 				return app1s(ret); // some error
@@ -676,7 +684,7 @@ int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
 			// read section length
 			const uint16_t section_length(EntryParser::parse16(buf + pos, false));
 			if (pos + section_length > len)
-				return app1s(PARSE_EXIF_ERROR_NO_JPEG);
+				return app1s(PARSE_INVALID_JPEG);
 			// skip the section
 			pos += section_length;
 		}
@@ -705,13 +713,11 @@ int EXIFInfo::parseFrom(const std::string& data) {
 // PARAM: 'len' length of buffer
 //
 int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
-	unsigned offs = 0;        // current offset into buffer
-	if (!buf || len < 6)
-		return PARSE_EXIF_ERROR_NO_EXIF;
-
-	if (!std::equal(buf, buf+6, "Exif\0\0"))
-		return PARSE_EXIF_ERROR_NO_EXIF;
-	offs += 6;
+	unsigned offs = 6; // current offset into buffer
+	if (!buf || len < offs)
+		return PARSE_ABSENT_DATA;
+	if (!std::equal(buf, buf+offs, "Exif\0\0"))
+		return PARSE_ABSENT_DATA;
 
 	// Now parsing the TIFF header. The first two bytes are either "II" or
 	// "MM" for Intel or Motorola byte alignment. Sanity check by parsing
@@ -725,7 +731,7 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	// -----------------------------
 	//  8 bytes
 	if (offs + 8 > len)
-		return PARSE_EXIF_ERROR_CORRUPT;
+		return PARSE_CORRUPT_DATA;
 	bool alignIntel;
 	if (buf[offs] == 'I' && buf[offs+1] == 'I')
 		alignIntel = true; // 1: Intel byte alignment
@@ -733,16 +739,16 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	if (buf[offs] == 'M' && buf[offs+1] == 'M')
 		alignIntel = false; // 0: Motorola byte alignment
 	else
-		return PARSE_EXIF_ERROR_UNKNOWN_BYTEALIGN;
+		return PARSE_UNKNOWN_BYTEALIGN;
 	EntryParser parser(buf, len, offs, alignIntel);
 	offs += 2;
 	if (0x2a != EntryParser::parse16(buf + offs, alignIntel))
-		return PARSE_EXIF_ERROR_CORRUPT;
+		return PARSE_CORRUPT_DATA;
 	offs += 2;
 	const unsigned first_ifd_offset = EntryParser::parse32(buf + offs, alignIntel);
 	offs += first_ifd_offset - 4;
 	if (offs >= len)
-		return PARSE_EXIF_ERROR_CORRUPT;
+		return PARSE_CORRUPT_DATA;
 
 	// Now parsing the first Image File Directory (IFD0, for the main image).
 	// An IFD consists of a variable number of 12-byte directory entries. The
@@ -751,10 +757,10 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	// to the next IFD, which means this IFD must contain exactly 6 + 12 * num
 	// bytes of data.
 	if (offs + 2 > len)
-		return PARSE_EXIF_ERROR_CORRUPT;
+		return PARSE_CORRUPT_DATA;
 	int num_entries = EntryParser::parse16(buf + offs, alignIntel);
 	if (offs + 6 + 12 * num_entries > len)
-		return PARSE_EXIF_ERROR_CORRUPT;
+		return PARSE_CORRUPT_DATA;
 	unsigned exif_sub_ifd_offset = len;
 	unsigned gps_sub_ifd_offset  = len;
 	parser.Init(offs+2);
@@ -771,7 +777,7 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 		offs = exif_sub_ifd_offset;
 		int num_entries = EntryParser::parse16(buf + offs, alignIntel);
 		if (offs + 6 + 12 * num_entries > len)
-			return PARSE_EXIF_ERROR_CORRUPT;
+			return PARSE_CORRUPT_DATA;
 		parser.Init(offs+2);
 		while (--num_entries >= 0) {
 			parser.ParseTag();
@@ -785,7 +791,7 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 		offs = gps_sub_ifd_offset;
 		int num_entries = EntryParser::parse16(buf + offs, alignIntel);
 		if (offs + 6 + 12 * num_entries > len)
-			return PARSE_EXIF_ERROR_CORRUPT;
+			return PARSE_CORRUPT_DATA;
 		parser.Init(offs+2);
 		while (--num_entries >= 0) {
 			parser.ParseTag();
@@ -794,7 +800,7 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 		GeoLocation.parseCoords();
 	}
 
-	return PARSE_EXIF_SUCCESS;
+	return PARSE_SUCCESS;
 }
 
 //
@@ -824,15 +830,13 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 		}
 	};
 
-	unsigned offs = 0; // current offset into buffer
-	if (!buf || len < 29)
-		return PARSE_EXIF_ERROR_NO_XMP;
-
-	if (!std::equal(buf, buf+29, "http://ns.adobe.com/xap/1.0/\0"))
-		return PARSE_EXIF_ERROR_NO_XMP;
-	offs += 29;
+	unsigned offs = 29; // current offset into buffer
+	if (!buf || len < offs)
+		return PARSE_ABSENT_DATA;
+	if (!std::equal(buf, buf+offs, "http://ns.adobe.com/xap/1.0/\0"))
+		return PARSE_ABSENT_DATA;
 	if (offs >= len)
-		return PARSE_EXIF_ERROR_CORRUPT;
+		return PARSE_CORRUPT_DATA;
 	len -= offs;
 
 	// Skip xpacket end section so that tinyxml2 lib parses the section correctly.
@@ -847,7 +851,7 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 		((document=doc.FirstChildElement("x:xmpmeta")) == NULL && (document=doc.FirstChildElement("xmp:xmpmeta")) == NULL) ||
 		(document=document->FirstChildElement("rdf:RDF")) == NULL ||
 		(document=document->FirstChildElement("rdf:Description")) == NULL)
-		return PARSE_EXIF_SUCCESS;
+		return PARSE_ABSENT_DATA;
 
 	// Now try parsing the XMP content for projection type.
 	{
@@ -867,11 +871,11 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 	// Now try parsing the XMP content for DJI info.
 	document->QueryDoubleAttribute("drone-dji:AbsoluteAltitude", &GeoLocation.Altitude);
 	document->QueryDoubleAttribute("drone-dji:RelativeAltitude", &GeoLocation.RelativeAltitude);
-	document->QueryDoubleAttribute("drone-dji:FlightRollDegree", &GeoLocation.RollDegree);
-	document->QueryDoubleAttribute("drone-dji:FlightPitchDegree", &GeoLocation.PitchDegree);
-	document->QueryDoubleAttribute("drone-dji:FlightYawDegree", &GeoLocation.YawDegree);
+	document->QueryDoubleAttribute("drone-dji:GimbalRollDegree", &GeoLocation.RollDegree);
+	document->QueryDoubleAttribute("drone-dji:GimbalPitchDegree", &GeoLocation.PitchDegree);
+	document->QueryDoubleAttribute("drone-dji:GimbalYawDegree", &GeoLocation.YawDegree);
 
-	return PARSE_EXIF_SUCCESS;
+	return PARSE_SUCCESS;
 }
 
 
@@ -920,6 +924,8 @@ bool EXIFInfo::Geolocation_t::hasOrientation() const {
 
 
 void EXIFInfo::clear() {
+	Fields = FIELD_NA;
+
 	// Strings
 	ImageDescription  = "";
 	Make              = "";
