@@ -237,7 +237,7 @@ public:
 			char j = intel ? 0 : 24;
 			char j_m = intel ? -8 : 8;
 			for (unsigned i=0; i<num_components; ++i, j -= j_m)
-				value[i] = data >> j & 0xff;
+				value[i] = (data >> j) & 0xff;
 			if (value[num_components-1] == '\0')
 				value.resize(num_components-1);
 		} else
@@ -246,6 +246,8 @@ public:
 			unsigned num(0);
 			while (num < num_components && sz[num] != '\0')
 				++num;
+			while (num && sz[num-1] == ' ')
+				--num;
 			value.assign(sz, num);
 		}
 		return value;
