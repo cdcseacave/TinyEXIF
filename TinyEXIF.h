@@ -120,6 +120,7 @@ public:
 	std::string ImageDescription;       // Image description
 	std::string Make;                   // Camera manufacturer's name
 	std::string Model;                  // Camera model
+	std::string SerialNumber;           // Serial number of the body of the camera
 	uint16_t Orientation;               // Image orientation, start of data corresponds to
 									    // 0: unspecified in EXIF data
 									    // 1: upper left of image

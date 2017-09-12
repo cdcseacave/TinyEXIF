@@ -39,6 +39,8 @@ int main(int argc, const char** argv)
 			std::cout << "Description " << imageEXIF.ImageDescription << "\n";
 		if (!imageEXIF.Make.empty() || !imageEXIF.Model.empty())
 			std::cout << "CameraModel " << imageEXIF.Make << " - " << imageEXIF.Model << "\n";
+		if (!imageEXIF.SerialNumber.empty())
+			std::cout << "SerialNumber " << imageEXIF.SerialNumber << "\n";
 		std::cout << "Orientation " << imageEXIF.Orientation << "\n";
 		std::cout << "Resolution " << imageEXIF.XResolution << "x" << imageEXIF.YResolution << "\n";
 		std::cout << "ResolutionUnit " << imageEXIF.ResolutionUnit << "\n";

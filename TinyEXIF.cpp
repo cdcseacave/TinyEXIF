@@ -509,6 +509,11 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 		}
 		break;
 
+	case 0xa431:
+		// Serial number of the camera
+		parser.Fetch(SerialNumber);
+		break;
+
 	case 0xa432:
 		// Focal length and FStop.
 		if (parser.Fetch(LensInfo.FocalLengthMin, 0))
@@ -932,6 +937,7 @@ void EXIFInfo::clear() {
 	ImageDescription  = "";
 	Make              = "";
 	Model             = "";
+	SerialNumber      = "";
 	Software          = "";
 	DateTime          = "";
 	DateTimeOriginal  = "";
