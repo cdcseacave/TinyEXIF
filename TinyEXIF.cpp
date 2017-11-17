@@ -2,7 +2,7 @@
   TinyEXIF.cpp -- A simple ISO C++ library to parse basic EXIF and XMP
                   information from a JPEG file.
 
-  Copyright (c) 2015-2016 Seacave
+  Copyright (c) 2015-2017 Seacave
   cdc.seacave@gmail.com
   All rights reserved.
 
@@ -32,7 +32,7 @@
 */
 
 #include "TinyEXIF.h"
-#include "tinyxml2.h"
+#include <tinyxml2.h>
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
@@ -782,7 +782,7 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	// typical user might want.
 	if (exif_sub_ifd_offset + 4 <= len) {
 		offs = exif_sub_ifd_offset;
-		int num_entries = EntryParser::parse16(buf + offs, alignIntel);
+		num_entries = EntryParser::parse16(buf + offs, alignIntel);
 		if (offs + 6 + 12 * num_entries > len)
 			return PARSE_CORRUPT_DATA;
 		parser.Init(offs+2);
@@ -796,7 +796,7 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	// there. Note that it's possible that the GPS SubIFD doesn't exist.
 	if (gps_sub_ifd_offset + 4 <= len) {
 		offs = gps_sub_ifd_offset;
-		int num_entries = EntryParser::parse16(buf + offs, alignIntel);
+		num_entries = EntryParser::parse16(buf + offs, alignIntel);
 		if (offs + 6 + 12 * num_entries > len)
 			return PARSE_CORRUPT_DATA;
 		parser.Init(offs+2);

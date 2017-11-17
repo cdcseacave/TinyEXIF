@@ -2,7 +2,7 @@
   TinyEXIF.h -- A simple ISO C++ library to parse basic EXIF and XMP
                 information from a JPEG file.
 
-  Copyright (c) 2015-2016 Seacave
+  Copyright (c) 2015-2017 Seacave
   cdc.seacave@gmail.com
   All rights reserved.
 
@@ -36,6 +36,10 @@
 
 #include <string>
 #include <vector>
+
+#define TINYEXIF_MAJOR_VERSION 1
+#define TINYEXIF_MINOR_VERSION 0
+#define TINYEXIF_PATCH_VERSION 0
 
 #ifdef _MSC_VER
 #   ifdef TINYEXIF_EXPORT
@@ -215,7 +219,7 @@ public:
 	                                    // 2: location of the main subject as coordinates (first value is the X coordinate and second is the Y coordinate)
 	                                    // 3: area of the main subject as a circle (first value is the center X coordinate, second is the center Y coordinate, and third is the diameter)
 	                                    // 4: area of the main subject as a rectangle (first value is the center X coordinate, second is the center Y coordinate, third is the width of the area, and fourth is the height of the area)
-	struct LensInfo_t {                 // Lens information
+	struct TINYEXIF_LIB LensInfo_t {    // Lens information
 		double FStopMin;                // Min aperture (f-stop)
 		double FStopMax;                // Max aperture (f-stop)
 		double FocalLengthMin;          // Min focal length (mm)
@@ -232,7 +236,7 @@ public:
 		std::string Make;               // Lens manufacturer
 		std::string Model;              // Lens model
 	} LensInfo;
-	struct Geolocation_t {              // GPS information embedded in file
+	struct TINYEXIF_LIB Geolocation_t { // GPS information embedded in file
 		double Latitude;                // Image latitude expressed as decimal
 		double Longitude;               // Image longitude expressed as decimal
 		double Altitude;                // Altitude in meters, relative to sea level
