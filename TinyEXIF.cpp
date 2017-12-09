@@ -258,11 +258,11 @@ public:
 // Constructors
 EXIFInfo::EXIFInfo() : Fields(FIELD_NA) {
 }
+EXIFInfo::EXIFInfo(EXIFStream& stream) {
+	parseFrom(stream);
+}
 EXIFInfo::EXIFInfo(const uint8_t* data, unsigned length) {
 	parseFrom(data, length);
-}
-EXIFInfo::EXIFInfo(const std::string& data) {
-	parseFrom(data);
 }
 
 
@@ -615,18 +615,16 @@ void EXIFInfo::parseIFDGPS(EntryParser& parser) {
 // Locates the JM_APP1 segment and parses it using
 // parseFromEXIFSegment() or parseFromXMPSegment()
 //
-int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
+int EXIFInfo::parseFrom(EXIFStream& stream) {
 	clear();
+	if (!stream.IsValid())
+		return PARSE_INVALID_JPEG;
 
 	// Sanity check: all JPEG files start with 0xFFD8 and end with 0xFFD9
 	// This check also ensures that the user has supplied a correct value for len.
-	if (!buf || len < 16)
+	const uint8_t* buf(stream.GetBuffer(2));
+	if (buf == NULL || buf[0] != JM_START || buf[1] != JM_SOI)
 		return PARSE_INVALID_JPEG;
-	if (buf[0] != JM_START || buf[1] != JM_SOI)
-		return PARSE_INVALID_JPEG;
-	// not always valid, sometimes 0xFF is added for padding
-	//if (buf[len-2] != JM_START || buf[len-1] != JM_EOI)
-	//  return PARSE_INVALID_JPEG;
 
 	// Scan for JM_APP1 header (bytes 0xFF 0xE1) and parse its length.
 	// Exit if both EXIF and XMP sections were parsed.
@@ -637,15 +635,16 @@ int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
 		inline operator uint32_t& () { return val; }
 		inline int operator () (int code=PARSE_ABSENT_DATA) const { return val&FIELD_ALL ? (int)PARSE_SUCCESS : code; }
 	} app1s(Fields);
-	for (unsigned pos=2; pos+2<=len; ) {
+	while ((buf=stream.GetBuffer(2)) != NULL) {
 		// find next marker;
 		// in cases of markers appended after the compressed data,
 		// optional JM_START fill bytes may precede the marker
-		if (buf[pos++] != JM_START)
+		if (*buf++ != JM_START)
 			break;
 		uint8_t marker;
-		while ((marker=buf[pos++]) == JM_START && pos<len);
+		while ((marker=buf[0]) == JM_START && (buf=stream.GetBuffer(1)) != NULL);
 		// select marker
+		uint16_t sectionLength;
 		switch (marker) {
 		case 0x00:
 		case 0x01:
@@ -663,12 +662,15 @@ int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
 		case JM_SOS: // start of stream: and we're done
 		case JM_EOI: // no data? not good
 			return app1s();
-		case JM_APP1: {
-			const uint16_t section_length(EntryParser::parse16(buf + pos, false));
-			int ret;
-			switch (ret=parseFromEXIFSegment(buf + pos + 2, section_length - 2)) {
+		case JM_APP1:
+			if ((buf=stream.GetBuffer(2)) == NULL)
+				return app1s(PARSE_INVALID_JPEG);
+			sectionLength = EntryParser::parse16(buf, false);
+			if (sectionLength <= 2 || (buf=stream.GetBuffer(sectionLength-=2)) == NULL)
+				return app1s(PARSE_INVALID_JPEG);
+			switch (int ret=parseFromEXIFSegment(buf, sectionLength)) {
 			case PARSE_ABSENT_DATA:
-				switch (ret=parseFromXMPSegment(buf + pos + 2, section_length - 2)) {
+				switch (ret=parseFromXMPSegment(buf, sectionLength)) {
 				case PARSE_ABSENT_DATA:
 					break;
 				case PARSE_SUCCESS:
@@ -686,22 +688,41 @@ int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
 			default:
 				return app1s(ret); // some error
 			}
-		}
-		default: {
-			// read section length
-			const uint16_t section_length(EntryParser::parse16(buf + pos, false));
-			if (pos + section_length > len)
-				return app1s(PARSE_INVALID_JPEG);
+			break;
+		default:
 			// skip the section
-			pos += section_length;
-		}
+			if ((buf=stream.GetBuffer(2)) == NULL ||
+				(sectionLength=EntryParser::parse16(buf, false)) <= 2 ||
+				!stream.SkipBuffer(sectionLength-2))
+				return app1s(PARSE_INVALID_JPEG);
 		}
 	}
 	return app1s();
 }
 
-int EXIFInfo::parseFrom(const std::string& data) {
-	return parseFrom((const uint8_t*)data.data(), (unsigned)data.length());
+int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
+	class EXIFStreamBuffer : public EXIFStream {
+	public:
+		EXIFStreamBuffer(const uint8_t* buf, unsigned len)
+			: it(buf), end(buf+len) {}
+		bool IsValid() const override {
+			return it != NULL;
+		}
+		const uint8_t* GetBuffer(unsigned desiredLength) override {
+			const uint8_t* const itNext(it+desiredLength);
+			if (itNext >= end)
+				return NULL;
+			const uint8_t* const begin(it);
+			it = itNext;
+			return begin;
+		}
+		bool SkipBuffer(unsigned desiredLength) override {
+			return GetBuffer(desiredLength) != NULL;
+		}
+	private:
+		const uint8_t* it, * const end;
+	};
+	return parseFrom(EXIFStreamBuffer(buf, len));
 }
 
 //

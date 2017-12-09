@@ -75,22 +75,42 @@ enum FieldCode {
 class EntryParser;
 
 //
-// Class responsible for storing and parsing EXIF information from a JPEG blob
+// Interface class responsible for fetching stream data to be parsed
+//
+class TINYEXIF_LIB EXIFStream {
+public:
+	virtual ~EXIFStream() {}
+
+	// Check the state of the stream.
+	virtual bool IsValid() const = 0;
+
+	// Return the pointer to the beginning of the desired size buffer
+	// following current buffer position.
+	virtual const uint8_t* GetBuffer(unsigned desiredLength) = 0;
+
+	// Advance current buffer position with the desired size;
+	// return false if stream ends in less than the desired size.
+	virtual bool SkipBuffer(unsigned desiredLength) = 0;
+};
+
+//
+// Class responsible for storing and parsing EXIF & XMP metadata from a JPEG stream
 //
 class TINYEXIF_LIB EXIFInfo {
 public:
 	EXIFInfo();
+	EXIFInfo(EXIFStream& stream);
 	EXIFInfo(const uint8_t* data, unsigned length);
-	EXIFInfo(const std::string& data);
 
 	// Parsing function for an entire JPEG image stream.
 	//
+	// PARAM 'stream': Interface to fetch JPEG image stream.
 	// PARAM 'data': A pointer to a JPEG image.
 	// PARAM 'length': The length of the JPEG image.
 	// RETURN:  PARSE_SUCCESS (0) on success with 'result' filled out
 	//          error code otherwise, as defined by the PARSE_* macros
+	int parseFrom(EXIFStream& stream);
 	int parseFrom(const uint8_t* data, unsigned length);
-	int parseFrom(const std::string& data);
 
 	// Parsing function for an EXIF segment. This is used internally by parseFrom()
 	// but can be called for special cases where only the EXIF section is 
