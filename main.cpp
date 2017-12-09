@@ -11,7 +11,7 @@
 
 class EXIFStreamFile : public TinyEXIF::EXIFStream {
 public:
-	EXIFStreamFile(const char* fileName)
+	explicit EXIFStreamFile(const char* fileName)
 		: file(fileName, std::ifstream::in|std::ifstream::binary) {}
 	bool IsValid() const override {
 		return file.is_open();

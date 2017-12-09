@@ -703,7 +703,7 @@ int EXIFInfo::parseFrom(EXIFStream& stream) {
 int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
 	class EXIFStreamBuffer : public EXIFStream {
 	public:
-		EXIFStreamBuffer(const uint8_t* buf, unsigned len)
+		explicit EXIFStreamBuffer(const uint8_t* buf, unsigned len)
 			: it(buf), end(buf+len) {}
 		bool IsValid() const override {
 			return it != NULL;
@@ -722,7 +722,8 @@ int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
 	private:
 		const uint8_t* it, * const end;
 	};
-	return parseFrom(EXIFStreamBuffer(buf, len));
+	EXIFStreamBuffer stream(buf, len);
+	return parseFrom(stream);
 }
 
 //
