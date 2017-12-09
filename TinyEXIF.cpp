@@ -13,22 +13,22 @@
   Redistribution and use in source and binary forms, with or without 
   modification, are permitted provided that the following conditions are met:
 
-  -- Redistributions of source code must retain the above copyright notice, 
+   - Redistributions of source code must retain the above copyright notice, 
      this list of conditions and the following disclaimer.
-  -- Redistributions in binary form must reproduce the above copyright notice, 
+   - Redistributions in binary form must reproduce the above copyright notice, 
      this list of conditions and the following disclaimer in the documentation 
    and/or other materials provided with the distribution.
 
-   THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY EXPRESS 
-   OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES 
-   OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN 
-   NO EVENT SHALL THE FREEBSD PROJECT OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, 
-   INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
-   BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, 
-   DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY 
-   OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
-   NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, 
-   EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+  THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY EXPRESS 
+  OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES 
+  OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN 
+  NO EVENT SHALL THE FREEBSD PROJECT OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, 
+  INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, 
+  BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, 
+  DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY 
+  OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING 
+  NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, 
+  EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include "TinyEXIF.h"
@@ -637,19 +637,19 @@ int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
 		inline operator uint32_t& () { return val; }
 		inline int operator () (int code=PARSE_ABSENT_DATA) const { return val&FIELD_ALL ? (int)PARSE_SUCCESS : code; }
 	} app1s(Fields);
-	for (unsigned pos=2; pos<len; ) {
-		// find next marker
-		uint8_t marker, prev(0);
-		do {
-			marker = buf[pos++];
-			if (marker != JM_START && prev == JM_START)
-				break;
-			prev = marker;
-		} while (pos<len);
+	for (unsigned pos=2; pos+2<=len; ) {
+		// find next marker;
+		// in cases of markers appended after the compressed data,
+		// optional JM_START fill bytes may precede the marker
+		if (buf[pos++] != JM_START)
+			break;
+		uint8_t marker;
+		while ((marker=buf[pos++]) == JM_START && pos<len);
 		// select marker
 		switch (marker) {
 		case 0x00:
 		case 0x01:
+		case JM_START:
 		case JM_RST0:
 		case JM_RST1:
 		case JM_RST2:
@@ -851,7 +851,7 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 	if ((strEnd=Tools::strrnstr(strXMP, "<?xpacket end=", len)) != NULL)
 		len = (unsigned)(strEnd - strXMP);
 
-	// Now try parsing the XML packet.
+	// Try parsing the XML packet.
 	tinyxml2::XMLDocument doc;
 	const tinyxml2::XMLElement* document;
 	if (doc.Parse(strXMP, len) != tinyxml2::XML_SUCCESS ||
@@ -860,7 +860,26 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 		(document=document->FirstChildElement("rdf:Description")) == NULL)
 		return PARSE_ABSENT_DATA;
 
-	// Now try parsing the XMP content for projection type.
+	// Try parsing the XMP content for tiff details.
+	if (Orientation == 0) {
+		uint32_t _Orientation(0);
+		document->QueryUnsignedAttribute("tiff:Orientation", &_Orientation);
+		Orientation = (uint16_t)_Orientation;
+	}
+	if (ImageWidth == 0 && ImageHeight == 0) {
+		document->QueryUnsignedAttribute("tiff:ImageWidth", &ImageWidth);
+		if (document->QueryUnsignedAttribute("tiff:ImageHeight", &ImageHeight) != tinyxml2::XML_SUCCESS)
+			document->QueryUnsignedAttribute("tiff:ImageLength", &ImageHeight) ;
+	}
+	if (XResolution == 0 && YResolution == 0 && ResolutionUnit == 0) {
+		document->QueryDoubleAttribute("tiff:XResolution", &XResolution);
+		document->QueryDoubleAttribute("tiff:YResolution", &YResolution);
+		uint32_t _ResolutionUnit(0);
+		document->QueryUnsignedAttribute("tiff:ResolutionUnit", &_ResolutionUnit);
+		ResolutionUnit = (uint16_t)_ResolutionUnit;
+	}
+
+	// Try parsing the XMP content for projection type.
 	{
 	const tinyxml2::XMLElement* const element(document->FirstChildElement("GPano:ProjectionType"));
 	if (element != NULL) {
@@ -875,7 +894,7 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 	}
 	}
 
-	// Now try parsing the XMP content for DJI info.
+	// Try parsing the XMP content for DJI info.
 	document->QueryDoubleAttribute("drone-dji:AbsoluteAltitude", &GeoLocation.Altitude);
 	document->QueryDoubleAttribute("drone-dji:RelativeAltitude", &GeoLocation.RelativeAltitude);
 	document->QueryDoubleAttribute("drone-dji:GimbalRollDegree", &GeoLocation.RollDegree);
@@ -887,7 +906,7 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 
 
 void EXIFInfo::Geolocation_t::parseCoords() {
-	// convert GPS latitude
+	// Convert GPS latitude
 	if (LatComponents.degrees != DBL_MAX ||
 		LatComponents.minutes != 0 ||
 		LatComponents.seconds != 0) {
@@ -898,7 +917,7 @@ void EXIFInfo::Geolocation_t::parseCoords() {
 		if ('S' == LatComponents.direction)
 			Latitude = -Latitude;
 	}
-	// convert GPS longitude
+	// Convert GPS longitude
 	if (LonComponents.degrees != DBL_MAX ||
 		LonComponents.minutes != 0 ||
 		LonComponents.seconds != 0) {
@@ -909,7 +928,7 @@ void EXIFInfo::Geolocation_t::parseCoords() {
 		if ('W' == LonComponents.direction)
 			Longitude = -Longitude;
 	}
-	// convert GPS altitude
+	// Convert GPS altitude
 	if (hasAltitude() &&
 		AltitudeRef == 1) {
 		Altitude = -Altitude;
@@ -951,6 +970,9 @@ void EXIFInfo::clear() {
 	RelatedImageWidth = 0;
 	RelatedImageHeight= 0;
 	Orientation       = 0;
+	XResolution       = 0;
+	YResolution       = 0;
+	ResolutionUnit    = 0;
 	BitsPerSample     = 0;
 	ExposureTime      = 0;
 	FNumber           = 0;

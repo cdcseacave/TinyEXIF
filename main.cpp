@@ -41,10 +41,12 @@ int main(int argc, const char** argv)
 			std::cout << "CameraModel " << imageEXIF.Make << " - " << imageEXIF.Model << "\n";
 		if (!imageEXIF.SerialNumber.empty())
 			std::cout << "SerialNumber " << imageEXIF.SerialNumber << "\n";
-		std::cout << "Orientation " << imageEXIF.Orientation << "\n";
-		std::cout << "Resolution " << imageEXIF.XResolution << "x" << imageEXIF.YResolution << "\n";
-		std::cout << "ResolutionUnit " << imageEXIF.ResolutionUnit << "\n";
-		std::cout << "BitsPerSample " << imageEXIF.BitsPerSample << "\n";
+		if (imageEXIF.Orientation)
+			std::cout << "Orientation " << imageEXIF.Orientation << "\n";
+		if (imageEXIF.XResolution || imageEXIF.YResolution || imageEXIF.ResolutionUnit)
+			std::cout << "Resolution " << imageEXIF.XResolution << "x" << imageEXIF.YResolution << " (" << imageEXIF.ResolutionUnit << ")\n";
+		if (imageEXIF.BitsPerSample)
+			std::cout << "BitsPerSample " << imageEXIF.BitsPerSample << "\n";
 		if (!imageEXIF.Software.empty())
 			std::cout << "Software " << imageEXIF.Software << "\n";
 		if (!imageEXIF.DateTime.empty())
