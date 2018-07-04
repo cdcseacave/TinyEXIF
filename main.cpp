@@ -100,6 +100,12 @@ int main(int argc, const char** argv)
 	std::cout << "MeteringMode " << imageEXIF.MeteringMode << "\n";
 	std::cout << "LightSource " << imageEXIF.LightSource << "\n";
 	std::cout << "ProjectionType " << imageEXIF.ProjectionType << "\n";
+	if (imageEXIF.Calibration.FocalLength != 0)
+		std::cout << "Calibration.FocalLength " << imageEXIF.Calibration.FocalLength << " pixels" << "\n";
+	if (imageEXIF.Calibration.OpticalCenterX != 0)
+		std::cout << "Calibration.OpticalCenterX " << imageEXIF.Calibration.OpticalCenterX << " pixels" << "\n";
+	if (imageEXIF.Calibration.OpticalCenterY != 0)
+		std::cout << "Calibration.OpticalCenterY " << imageEXIF.Calibration.OpticalCenterY << " pixels" << "\n";
 	std::cout << "LensInfo.FStopMin " << imageEXIF.LensInfo.FStopMin << "\n";
 	std::cout << "LensInfo.FStopMax " << imageEXIF.LensInfo.FStopMax << "\n";
 	std::cout << "LensInfo.FocalLengthMin " << imageEXIF.LensInfo.FocalLengthMin << " mm" << "\n";

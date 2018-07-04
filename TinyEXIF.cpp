@@ -934,6 +934,9 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 		document->QueryDoubleAttribute("drone-dji:GimbalRollDegree", &GeoLocation.RollDegree);
 		document->QueryDoubleAttribute("drone-dji:GimbalPitchDegree", &GeoLocation.PitchDegree);
 		document->QueryDoubleAttribute("drone-dji:GimbalYawDegree", &GeoLocation.YawDegree);
+		document->QueryDoubleAttribute("drone-dji:CalibratedFocalLength", &Calibration.FocalLength);
+		document->QueryDoubleAttribute("drone-dji:CalibratedOpticalCenterX", &Calibration.OpticalCenterX);
+		document->QueryDoubleAttribute("drone-dji:CalibratedOpticalCenterY", &Calibration.OpticalCenterY);
 	}
 
 	return PARSE_SUCCESS;
@@ -1024,6 +1027,11 @@ void EXIFInfo::clear() {
 	LightSource       = 0;
 	ProjectionType    = 0;
 	SubjectArea.clear();
+
+	// Calibration
+	Calibration.FocalLength = 0;
+	Calibration.OpticalCenterX = 0;
+	Calibration.OpticalCenterY = 0;
 
 	// LensInfo
 	LensInfo.FocalLengthMax = 0;
