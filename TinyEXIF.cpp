@@ -857,6 +857,9 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 			}
 			return NULL;
 		}
+		static double NormD180(double d) {
+			return (d = fmod(d+180.0, 360.0)) < 0 ? d+180.0 : d-180.0;
+		}
 	};
 
 	unsigned offs = 29; // current offset into buffer
@@ -916,12 +919,22 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 	}
 	}
 
-	// Try parsing the XMP content for DJI info.
-	document->QueryDoubleAttribute("drone-dji:AbsoluteAltitude", &GeoLocation.Altitude);
-	document->QueryDoubleAttribute("drone-dji:RelativeAltitude", &GeoLocation.RelativeAltitude);
-	document->QueryDoubleAttribute("drone-dji:GimbalRollDegree", &GeoLocation.RollDegree);
-	document->QueryDoubleAttribute("drone-dji:GimbalPitchDegree", &GeoLocation.PitchDegree);
-	document->QueryDoubleAttribute("drone-dji:GimbalYawDegree", &GeoLocation.YawDegree);
+	// Try parsing the XMP content for senseFly info.
+	if (0 == _tcsicmp(Make.c_str(), "senseFly")) {
+		document->QueryDoubleAttribute("Camera:Roll", &GeoLocation.RollDegree);
+		if (document->QueryDoubleAttribute("Camera:Pitch", &GeoLocation.PitchDegree) == tinyxml2::XML_SUCCESS) {
+			// convert to DJI format: senseFly uses pitch 0 as NADIR, whereas DJI -90
+			GeoLocation.PitchDegree = Tools::NormD180(GeoLocation.PitchDegree-90.0);
+		}
+		document->QueryDoubleAttribute("Camera:Yaw", &GeoLocation.YawDegree);
+	} else {
+		// Try parsing the XMP content for DJI info.
+		document->QueryDoubleAttribute("drone-dji:AbsoluteAltitude", &GeoLocation.Altitude);
+		document->QueryDoubleAttribute("drone-dji:RelativeAltitude", &GeoLocation.RelativeAltitude);
+		document->QueryDoubleAttribute("drone-dji:GimbalRollDegree", &GeoLocation.RollDegree);
+		document->QueryDoubleAttribute("drone-dji:GimbalPitchDegree", &GeoLocation.PitchDegree);
+		document->QueryDoubleAttribute("drone-dji:GimbalYawDegree", &GeoLocation.YawDegree);
+	}
 
 	return PARSE_SUCCESS;
 }
