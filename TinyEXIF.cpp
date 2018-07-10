@@ -145,6 +145,10 @@ public:
 		length = parse32(buf + offs + 4, alignIntel);
 	}
 
+	const uint8_t* GetBuffer() const { return buf; }
+	unsigned GetOffset() const { return offs; }
+	bool IsIntelAligned() const { return alignIntel; }
+
 	uint16_t GetTag() const { return tag; }
 	uint32_t GetLength() const { return length; }
 	uint32_t GetData() const { return parse32(buf + offs + 8, alignIntel); }
@@ -153,11 +157,12 @@ public:
 	bool IsShort() const { return format == 3; }
 	bool IsLong() const { return format == 4; }
 	bool IsRational() const { return format == 5 || format == 10; }
+	bool IsFloat() const { return format == 11; }
 
 	bool Fetch(std::string& val) const {
 		if (format != 2 || length == 0)
 			return false;
-		val = parseEXIFString(buf, length, GetData(), tiff_header_start, len, alignIntel);
+		val = parseString(buf, length, GetData(), tiff_header_start, len, alignIntel);
 		return true;
 	}
 	bool Fetch(uint8_t& val) const {
@@ -184,16 +189,30 @@ public:
 		val = parse32(buf + offs + 8, alignIntel);
 		return true;
 	}
+	bool Fetch(float& val) const {
+		if (!IsFloat() || length == 0)
+			return false;
+		val = parseFloat(buf + offs + 8, alignIntel);
+		return true;
+	}
 	bool Fetch(double& val) const {
 		if (!IsRational() || length == 0)
 			return false;
-		val = parseEXIFRational(buf + GetSubIFD(), alignIntel);
+		val = parseRational(buf + GetSubIFD(), alignIntel);
 		return true;
 	}
 	bool Fetch(double& val, uint32_t idx) const {
 		if (!IsRational() || length <= idx)
 			return false;
-		val = parseEXIFRational(buf + GetSubIFD() + idx*8, alignIntel);
+		val = parseRational(buf + GetSubIFD() + idx*8, alignIntel);
+		return true;
+	}
+
+	bool FetchFloat(double& val) const {
+		float _val;
+		if (!Fetch(_val))
+			return false;
+		val = _val;
 		return true;
 	}
 
@@ -217,14 +236,22 @@ public:
 			((uint32_t)buf[2]<<8)  |
 			buf[3];
 	}
-	static double parseEXIFRational(const uint8_t* buf, bool intel) {
+	static float parseFloat(const uint8_t* buf, bool intel) {
+		union {
+			uint32_t i;
+			float f;
+		} i2f;
+		i2f.i = parse32(buf, intel);
+		return i2f.f;
+	}
+	static double parseRational(const uint8_t* buf, bool intel) {
 		const uint32_t denominator = parse32(buf+4, intel);
 		if (denominator == 0)
 			return 0.0;
 		const uint32_t numerator = parse32(buf, intel);
 		return (double)(int32_t)numerator/(double)(int32_t)denominator;
 	}
-	static std::string parseEXIFString(const uint8_t* buf,
+	static std::string parseString(const uint8_t* buf,
 		unsigned num_components,
 		unsigned data,
 		unsigned base,
@@ -448,6 +475,11 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 		}
 		break;
 
+	case 0x927c:
+		// MakerNote
+		parseIFDMakerNote(parser);
+		break;
+
 	case 0x9291:
 		// Fractions of seconds for DateTimeOriginal
 		parser.Fetch(SubSecTimeOriginal);
@@ -532,6 +564,60 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 		parser.Fetch(LensInfo.Model);
 		break;
 	}
+}
+
+// Parse tag as MakerNote IFD
+void EXIFInfo::parseIFDMakerNote(EntryParser& parser) {
+	const unsigned startOff = parser.GetOffset();
+	const uint32_t off = parser.GetSubIFD();
+	if (0 != _tcsicmp(Make.c_str(), "DJI"))
+		return;
+	int num_entries = EntryParser::parse16(parser.GetBuffer()+off, parser.IsIntelAligned());
+	if (uint32_t(2 + 12 * num_entries) > parser.GetLength())
+		return;
+	parser.Init(off+2);
+	parser.ParseTag();
+	--num_entries;
+	std::string maker;
+	if (parser.GetTag() == 1 && parser.Fetch(maker)) {
+		if (0 == _tcsicmp(maker.c_str(), "DJI")) {
+			while (--num_entries >= 0) {
+				parser.ParseTag();
+				switch (parser.GetTag()) {
+				case 3:
+					// SpeedX
+					parser.FetchFloat(GeoLocation.SpeedX);
+					break;
+
+				case 4:
+					// SpeedY
+					parser.FetchFloat(GeoLocation.SpeedY);
+					break;
+
+				case 5:
+					// SpeedZ
+					parser.FetchFloat(GeoLocation.SpeedZ);
+					break;
+
+				case 9:
+					// Camera Pitch
+					parser.FetchFloat(GeoLocation.PitchDegree);
+					break;
+
+				case 10:
+					// Camera Yaw
+					parser.FetchFloat(GeoLocation.YawDegree);
+					break;
+
+				case 11:
+					// Camera Roll
+					parser.FetchFloat(GeoLocation.RollDegree);
+					break;
+				}
+			}
+		}
+	}
+	parser.Init(startOff+12);
 }
 
 // Parse tag as GPS IFD
@@ -985,6 +1071,9 @@ bool EXIFInfo::Geolocation_t::hasRelativeAltitude() const {
 bool EXIFInfo::Geolocation_t::hasOrientation() const {
 	return RollDegree != DBL_MAX && PitchDegree != DBL_MAX && YawDegree != DBL_MAX;
 }
+bool EXIFInfo::Geolocation_t::hasSpeed() const {
+	return SpeedX != DBL_MAX && SpeedY != DBL_MAX && SpeedZ != DBL_MAX;
+}
 
 
 void EXIFInfo::clear() {
@@ -1055,6 +1144,9 @@ void EXIFInfo::clear() {
 	GeoLocation.RollDegree              = DBL_MAX;
 	GeoLocation.PitchDegree             = DBL_MAX;
 	GeoLocation.YawDegree               = DBL_MAX;
+	GeoLocation.SpeedX                  = DBL_MAX;
+	GeoLocation.SpeedY                  = DBL_MAX;
+	GeoLocation.SpeedZ                  = DBL_MAX;
 	GeoLocation.GPSDOP                  = 0;
 	GeoLocation.GPSDifferential         = 0;
 	GeoLocation.GPSMapDatum             = "";

@@ -132,6 +132,11 @@ int main(int argc, const char** argv)
 		std::cout << "GeoLocation.PitchDegree " << imageEXIF.GeoLocation.PitchDegree << "\n";
 		std::cout << "GeoLocation.YawDegree " << imageEXIF.GeoLocation.YawDegree << "\n";
 	}
+	if (imageEXIF.GeoLocation.hasSpeed()) {
+		std::cout << "GeoLocation.SpeedX " << imageEXIF.GeoLocation.SpeedX << "\n";
+		std::cout << "GeoLocation.SpeedY " << imageEXIF.GeoLocation.SpeedY << "\n";
+		std::cout << "GeoLocation.SpeedZ " << imageEXIF.GeoLocation.SpeedZ << "\n";
+	}
 	std::cout << "GeoLocation.GPSDOP " << imageEXIF.GeoLocation.GPSDOP << "\n";
 	std::cout << "GeoLocation.GPSDifferential " << imageEXIF.GeoLocation.GPSDifferential << "\n";
 	if (!imageEXIF.GeoLocation.GPSMapDatum.empty())

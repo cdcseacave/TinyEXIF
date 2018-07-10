@@ -133,6 +133,8 @@ private:
 	void parseIFDExif(EntryParser&);
 	// Parse tag as GPS IFD.
 	void parseIFDGPS(EntryParser&);
+	// Parse tag as MakerNote IFD.
+	void parseIFDMakerNote(EntryParser&);
 
 public:
 	// Data fields
@@ -270,6 +272,9 @@ public:
 		double RollDegree;              // Flight roll in degrees
 		double PitchDegree;             // Flight pitch in degrees
 		double YawDegree;               // Flight yaw in degrees
+		double SpeedX;                  // Flight speed on X in meters/second
+		double SpeedY;                  // Flight speed on Y in meters/second
+		double SpeedZ;                  // Flight speed on Z in meters/second
 		double GPSDOP;                  // GPS DOP (data degree of precision)
 		uint16_t GPSDifferential;       // Differential correction applied to the GPS receiver (may not exist)
 										// 0: measurement without differential correction
@@ -288,6 +293,7 @@ public:
 		bool hasAltitude() const;       // Return true if (alt) is available
 		bool hasRelativeAltitude()const;// Return true if (rel_alt) is available
 		bool hasOrientation() const;    // Return true if (roll,yaw,pitch) is available
+		bool hasSpeed() const;          // Return true if (speedX,speedY,speedZ) is available
 	} GeoLocation;
 };
 
