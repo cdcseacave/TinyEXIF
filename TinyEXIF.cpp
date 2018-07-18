@@ -1013,6 +1013,8 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 			GeoLocation.PitchDegree = Tools::NormD180(GeoLocation.PitchDegree-90.0);
 		}
 		document->QueryDoubleAttribute("Camera:Yaw", &GeoLocation.YawDegree);
+		document->QueryDoubleAttribute("Camera:GPSXYAccuracy", &GeoLocation.AccuracyXY);
+		document->QueryDoubleAttribute("Camera:GPSZAccuracy", &GeoLocation.AccuracyZ);
 	} else {
 		// Try parsing the XMP content for DJI info.
 		document->QueryDoubleAttribute("drone-dji:AbsoluteAltitude", &GeoLocation.Altitude);
@@ -1147,6 +1149,8 @@ void EXIFInfo::clear() {
 	GeoLocation.SpeedX                  = DBL_MAX;
 	GeoLocation.SpeedY                  = DBL_MAX;
 	GeoLocation.SpeedZ                  = DBL_MAX;
+	GeoLocation.AccuracyXY              = 0;
+	GeoLocation.AccuracyZ               = 0;
 	GeoLocation.GPSDOP                  = 0;
 	GeoLocation.GPSDifferential         = 0;
 	GeoLocation.GPSMapDatum             = "";

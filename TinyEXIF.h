@@ -275,6 +275,8 @@ public:
 		double SpeedX;                  // Flight speed on X in meters/second
 		double SpeedY;                  // Flight speed on Y in meters/second
 		double SpeedZ;                  // Flight speed on Z in meters/second
+		double AccuracyXY;              // GPS accuracy on XY in meters
+		double AccuracyZ;               // GPS accuracy on Z in meters
 		double GPSDOP;                  // GPS DOP (data degree of precision)
 		uint16_t GPSDifferential;       // Differential correction applied to the GPS receiver (may not exist)
 										// 0: measurement without differential correction
