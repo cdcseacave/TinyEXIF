@@ -126,7 +126,7 @@ int main(int argc, const char** argv)
 		std::cout << "GeoLocation.AltitudeRef " << (int)imageEXIF.GeoLocation.AltitudeRef << "\n";
 	}
 	if (imageEXIF.GeoLocation.hasRelativeAltitude())
-		std::cout << "GeoLocation.RelativeAltitude " << imageEXIF.GeoLocation.RelativeAltitude << "\n";
+		std::cout << "GeoLocation.RelativeAltitude " << imageEXIF.GeoLocation.RelativeAltitude << " m" << "\n";
 	if (imageEXIF.GeoLocation.hasOrientation()) {
 		std::cout << "GeoLocation.RollDegree " << imageEXIF.GeoLocation.RollDegree << "\n";
 		std::cout << "GeoLocation.PitchDegree " << imageEXIF.GeoLocation.PitchDegree << "\n";
