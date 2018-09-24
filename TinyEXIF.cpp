@@ -1006,7 +1006,7 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 	}
 	}
 
-	// Try parsing the XMP content for senseFly info.
+	// Try parsing the XMP content for supported maker's info.
 	struct ParseXMP	{
 		static bool Value(const tinyxml2::XMLElement* document, const char* name, double& value) {
 			if (document->QueryDoubleAttribute(name, &value) == tinyxml2::XML_SUCCESS)
@@ -1017,6 +1017,16 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 			return false;
 		}
 	};
+	if (0 == _tcsicmp(Make.c_str(), "DJI")) {
+		ParseXMP::Value(document, "drone-dji:AbsoluteAltitude", GeoLocation.Altitude);
+		ParseXMP::Value(document, "drone-dji:RelativeAltitude", GeoLocation.RelativeAltitude);
+		ParseXMP::Value(document, "drone-dji:GimbalRollDegree", GeoLocation.RollDegree);
+		ParseXMP::Value(document, "drone-dji:GimbalPitchDegree", GeoLocation.PitchDegree);
+		ParseXMP::Value(document, "drone-dji:GimbalYawDegree", GeoLocation.YawDegree);
+		ParseXMP::Value(document, "drone-dji:CalibratedFocalLength", Calibration.FocalLength);
+		ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterX", Calibration.OpticalCenterX);
+		ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterY", Calibration.OpticalCenterY);
+	} else
 	if (0 == _tcsicmp(Make.c_str(), "senseFly")) {
 		ParseXMP::Value(document, "Camera:Roll", GeoLocation.RollDegree);
 		if (ParseXMP::Value(document, "Camera:Pitch", GeoLocation.PitchDegree)) {
@@ -1028,23 +1038,16 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 		ParseXMP::Value(document, "Camera:GPSZAccuracy", GeoLocation.AccuracyZ);
 	} else
 	if (0 == _tcsicmp(Make.c_str(), "PARROT")) {
-		ParseXMP::Value(document, "Camera:Roll", GeoLocation.RollDegree);
-		if (ParseXMP::Value(document, "Camera:Pitch", GeoLocation.PitchDegree)) {
+		ParseXMP::Value(document, "Camera:Roll", GeoLocation.RollDegree) ||
+		ParseXMP::Value(document, "drone-parrot:CameraRollDegree", GeoLocation.RollDegree);
+		if (ParseXMP::Value(document, "Camera:Pitch", GeoLocation.PitchDegree) ||
+			ParseXMP::Value(document, "drone-parrot:CameraPitchDegree", GeoLocation.PitchDegree)) {
 			// convert to DJI format: senseFly uses pitch 0 as NADIR, whereas DJI -90
 			GeoLocation.PitchDegree = Tools::NormD180(GeoLocation.PitchDegree-90.0);
 		}
-		ParseXMP::Value(document, "Camera:Yaw", GeoLocation.YawDegree);
+		ParseXMP::Value(document, "Camera:Yaw", GeoLocation.YawDegree) ||
+		ParseXMP::Value(document, "drone-parrot:CameraYawDegree", GeoLocation.YawDegree);
 		ParseXMP::Value(document, "Camera:AboveGroundAltitude", GeoLocation.RelativeAltitude);
-	} else {
-		// Try parsing the XMP content for DJI info.
-		ParseXMP::Value(document, "drone-dji:AbsoluteAltitude", GeoLocation.Altitude);
-		ParseXMP::Value(document, "drone-dji:RelativeAltitude", GeoLocation.RelativeAltitude);
-		ParseXMP::Value(document, "drone-dji:GimbalRollDegree", GeoLocation.RollDegree);
-		ParseXMP::Value(document, "drone-dji:GimbalPitchDegree", GeoLocation.PitchDegree);
-		ParseXMP::Value(document, "drone-dji:GimbalYawDegree", GeoLocation.YawDegree);
-		ParseXMP::Value(document, "drone-dji:CalibratedFocalLength", Calibration.FocalLength);
-		ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterX", Calibration.OpticalCenterX);
-		ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterY", Calibration.OpticalCenterY);
 	}
 
 	return PARSE_SUCCESS;
