@@ -1020,7 +1020,8 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 			return false;
 		}
 	};
-	if (0 == _tcsicmp(Make.c_str(), "DJI")) {
+	const char* szAbout(document->Attribute("rdf:about"));
+	if (0 == _tcsicmp(Make.c_str(), "DJI") || (szAbout != NULL && 0 == _tcsicmp(szAbout, "DJI Meta Data"))) {
 		ParseXMP::Value(document, "drone-dji:AbsoluteAltitude", GeoLocation.Altitude);
 		ParseXMP::Value(document, "drone-dji:RelativeAltitude", GeoLocation.RelativeAltitude);
 		ParseXMP::Value(document, "drone-dji:GimbalRollDegree", GeoLocation.RollDegree);
