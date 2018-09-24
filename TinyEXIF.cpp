@@ -157,6 +157,7 @@ public:
 	bool IsShort() const { return format == 3; }
 	bool IsLong() const { return format == 4; }
 	bool IsRational() const { return format == 5 || format == 10; }
+	bool IsSRational() const { return format == 10; }
 	bool IsFloat() const { return format == 11; }
 
 	bool Fetch(std::string& val) const {
@@ -198,13 +199,13 @@ public:
 	bool Fetch(double& val) const {
 		if (!IsRational() || length == 0)
 			return false;
-		val = parseRational(buf + GetSubIFD(), alignIntel);
+		val = parseRational(buf + GetSubIFD(), alignIntel, IsSRational());
 		return true;
 	}
 	bool Fetch(double& val, uint32_t idx) const {
 		if (!IsRational() || length <= idx)
 			return false;
-		val = parseRational(buf + GetSubIFD() + idx*8, alignIntel);
+		val = parseRational(buf + GetSubIFD() + idx*8, alignIntel, IsSRational());
 		return true;
 	}
 
@@ -244,12 +245,14 @@ public:
 		i2f.i = parse32(buf, intel);
 		return i2f.f;
 	}
-	static double parseRational(const uint8_t* buf, bool intel) {
+	static double parseRational(const uint8_t* buf, bool intel, bool isSigned) {
 		const uint32_t denominator = parse32(buf+4, intel);
 		if (denominator == 0)
 			return 0.0;
 		const uint32_t numerator = parse32(buf, intel);
-		return (double)(int32_t)numerator/(double)(int32_t)denominator;
+		return isSigned ?
+			(double)(int32_t)numerator/(double)(int32_t)denominator :
+			(double)numerator/(double)denominator;
 	}
 	static std::string parseString(const uint8_t* buf,
 		unsigned num_components,
