@@ -159,11 +159,15 @@ public:
 	bool IsRational() const { return format == 5 || format == 10; }
 	bool IsSRational() const { return format == 10; }
 	bool IsFloat() const { return format == 11; }
+	bool IsUndefined() const { return format == 7; }
 
+	std::string FetchString() const {
+		return parseString(buf, length, GetData(), tiff_header_start, len, alignIntel);
+	}
 	bool Fetch(std::string& val) const {
 		if (format != 2 || length == 0)
 			return false;
-		val = parseString(buf, length, GetData(), tiff_header_start, len, alignIntel);
+		val = FetchString();
 		return true;
 	}
 	bool Fetch(uint8_t& val) const {
@@ -392,6 +396,14 @@ void EXIFInfo::parseIFDImage(EntryParser& parser, unsigned& exif_sub_ifd_offset,
 // Parse tag as Exif IFD
 void EXIFInfo::parseIFDExif(EntryParser& parser) {
 	switch (parser.GetTag()) {
+	case 0x02bc:
+		// XMP Metadata (Adobe technote 9-14-02)
+		if (parser.IsUndefined()) {
+			const std::string strXML(parser.FetchString());
+			parseFromXMPSegmentXML(strXML.c_str(), (unsigned)strXML.length());
+		}
+		break;
+
 	case 0x829a:
 		// Exposure time in seconds
 		parser.Fetch(ExposureTime);
@@ -931,6 +943,16 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 // PARAM: 'len' length of buffer
 //
 int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
+	unsigned offs = 29; // current offset into buffer
+	if (!buf || len < offs)
+		return PARSE_ABSENT_DATA;
+	if (!std::equal(buf, buf+offs, "http://ns.adobe.com/xap/1.0/\0"))
+		return PARSE_ABSENT_DATA;
+	if (offs >= len)
+		return PARSE_CORRUPT_DATA;
+	return parseFromXMPSegmentXML((const char*)(buf + offs), len - offs);
+}
+int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 	struct Tools {
 		static const char* strrnstr(const char* haystack, const char* needle, size_t len) {
 			const size_t needle_len(strlen(needle));
@@ -951,24 +973,15 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 		}
 	};
 
-	unsigned offs = 29; // current offset into buffer
-	if (!buf || len < offs)
-		return PARSE_ABSENT_DATA;
-	if (!std::equal(buf, buf+offs, "http://ns.adobe.com/xap/1.0/\0"))
-		return PARSE_ABSENT_DATA;
-	if (offs >= len)
-		return PARSE_CORRUPT_DATA;
-	len -= offs;
-
 	// Skip xpacket end section so that tinyxml2 lib parses the section correctly.
-	const char* const strXMP((const char*)(buf + offs)), *strEnd;
-	if ((strEnd=Tools::strrnstr(strXMP, "<?xpacket end=", len)) != NULL)
-		len = (unsigned)(strEnd - strXMP);
+	const char* szEnd(Tools::strrnstr(szXML, "<?xpacket end=", len));
+	if (szEnd != NULL)
+		len = (unsigned)(szEnd - szXML);
 
 	// Try parsing the XML packet.
 	tinyxml2::XMLDocument doc;
 	const tinyxml2::XMLElement* document;
-	if (doc.Parse(strXMP, len) != tinyxml2::XML_SUCCESS ||
+	if (doc.Parse(szXML, len) != tinyxml2::XML_SUCCESS ||
 		((document=doc.FirstChildElement("x:xmpmeta")) == NULL && (document=doc.FirstChildElement("xmp:xmpmeta")) == NULL) ||
 		(document=document->FirstChildElement("rdf:RDF")) == NULL ||
 		(document=document->FirstChildElement("rdf:Description")) == NULL)
