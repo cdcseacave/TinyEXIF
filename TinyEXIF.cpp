@@ -49,6 +49,43 @@
 #endif
 
 
+namespace Tools {
+
+	// search string inside a string, case sensitive
+	static const char* strrnstr(const char* haystack, const char* needle, size_t len) {
+		const size_t needle_len(strlen(needle));
+		if (0 == needle_len)
+			return haystack;
+		if (len <= needle_len)
+			return NULL;
+		for (size_t i=len-needle_len; i-- > 0; ) {
+			if (haystack[0] == needle[0] &&
+				0 == _tcsncmp(haystack, needle, needle_len))
+				return haystack;
+			haystack++;
+		}
+		return NULL;
+	}
+
+	// split an input string with a delimiter and fill a string vector
+	static void strSplit(const std::string& str, TCHAR delim, std::vector<std::string>& values) {
+		values.clear();
+		std::string::size_type start(0), end(0);
+		while (end != std::string::npos) {
+			end = str.find(delim, start);
+			values.emplace_back(str.substr(start, end-start));
+			start = end + 1;
+		}
+	}
+
+	// make sure the given degrees value is between -180 and 180
+	static double NormD180(double d) {
+		return (d = fmod(d+180.0, 360.0)) < 0 ? d+180.0 : d-180.0;
+	}
+
+} // namespace Tools
+
+
 namespace TinyEXIF {
 
 enum JPEG_MARKERS {
@@ -953,26 +990,6 @@ int EXIFInfo::parseFromXMPSegment(const uint8_t* buf, unsigned len) {
 	return parseFromXMPSegmentXML((const char*)(buf + offs), len - offs);
 }
 int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
-	struct Tools {
-		static const char* strrnstr(const char* haystack, const char* needle, size_t len) {
-			const size_t needle_len(strlen(needle));
-			if (0 == needle_len)
-				return haystack;
-			if (len <= needle_len)
-				return NULL;
-			for (size_t i=len-needle_len; i-- > 0; ) {
-				if (haystack[0] == needle[0] &&
-					0 == _tcsncmp(haystack, needle, needle_len))
-					return haystack;
-				haystack++;
-			}
-			return NULL;
-		}
-		static double NormD180(double d) {
-			return (d = fmod(d+180.0, 360.0)) < 0 ? d+180.0 : d-180.0;
-		}
-	};
-
 	// Skip xpacket end section so that tinyxml2 lib parses the section correctly.
 	const char* szEnd(Tools::strrnstr(szXML, "<?xpacket end=", len));
 	if (szEnd != NULL)
@@ -1024,12 +1041,21 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 
 	// Try parsing the XMP content for supported maker's info.
 	struct ParseXMP	{
+		// try yo fetch the value both from the attribute and child element
+		// and parse if needed rational numbers stored as string fraction
 		static bool Value(const tinyxml2::XMLElement* document, const char* name, double& value) {
-			if (document->QueryDoubleAttribute(name, &value) == tinyxml2::XML_SUCCESS)
-				return true;
-			const tinyxml2::XMLElement* const element(document->FirstChildElement(name));
-			if (element != NULL && element->QueryDoubleText(&value) == tinyxml2::XML_SUCCESS)
-				return true;
+			const char* szAttribute = document->Attribute(name);
+			if (szAttribute == NULL) {
+				const tinyxml2::XMLElement* const element(document->FirstChildElement(name));
+				if (element == NULL || (szAttribute=element->GetText()) == NULL)
+					return false;
+			}
+			std::vector<std::string> values;
+			Tools::strSplit(szAttribute, '/', values);
+			switch (values.size()) {
+			case 1: value = strtod(values.front().c_str(), NULL); return true;
+			case 2: value = strtod(values.front().c_str(), NULL)/strtod(values.back().c_str(), NULL); return true;
+			}
 			return false;
 		}
 	};
@@ -1044,7 +1070,7 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterX", Calibration.OpticalCenterX);
 		ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterY", Calibration.OpticalCenterY);
 	} else
-	if (0 == _tcsicmp(Make.c_str(), "senseFly")) {
+	if (0 == _tcsicmp(Make.c_str(), "senseFly") || 0 == _tcsicmp(Make.c_str(), "Sentera")) {
 		ParseXMP::Value(document, "Camera:Roll", GeoLocation.RollDegree);
 		if (ParseXMP::Value(document, "Camera:Pitch", GeoLocation.PitchDegree)) {
 			// convert to DJI format: senseFly uses pitch 0 as NADIR, whereas DJI -90
