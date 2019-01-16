@@ -68,7 +68,7 @@ namespace Tools {
 	}
 
 	// split an input string with a delimiter and fill a string vector
-	static void strSplit(const std::string& str, TCHAR delim, std::vector<std::string>& values) {
+	static void strSplit(const std::string& str, char delim, std::vector<std::string>& values) {
 		values.clear();
 		std::string::size_type start(0), end(0);
 		while (end != std::string::npos) {
