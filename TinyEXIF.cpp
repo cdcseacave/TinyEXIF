@@ -1093,7 +1093,7 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		ParseXMP::Value(document, "Camera:AboveGroundAltitude", GeoLocation.RelativeAltitude);
 	}
 	ParseXMP::Value(document, "GPano:PosePitchDegrees", GPano.PosePitchDegrees);
-    ParseXMP::Value(document, "GPano:PoseRollDegrees", GPano.PoseRollDegrees);
+	ParseXMP::Value(document, "GPano:PoseRollDegrees", GPano.PoseRollDegrees);
 
 	return PARSE_SUCCESS;
 }
@@ -1146,13 +1146,12 @@ bool EXIFInfo::Geolocation_t::hasSpeed() const {
 }
 
 bool EXIFInfo::GPano_t::hasPosePitchDegrees() const {
-    return PosePitchDegrees != DBL_MAX;
+	return PosePitchDegrees != DBL_MAX;
 }
 
 bool EXIFInfo::GPano_t::hasPoseRollDegrees() const {
-    return PoseRollDegrees != DBL_MAX;
+	return PoseRollDegrees != DBL_MAX;
 }
-
 
 void EXIFInfo::clear() {
 	Fields = FIELD_NA;
