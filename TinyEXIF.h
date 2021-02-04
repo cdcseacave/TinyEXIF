@@ -298,6 +298,12 @@ public:
 		bool hasOrientation() const;    // Return true if (roll,yaw,pitch) is available
 		bool hasSpeed() const;          // Return true if (speedX,speedY,speedZ) is available
 	} GeoLocation;
+	struct TINYEXIF_LIB GPano_t {           // Spherical metadata. https://developers.google.com/streetview/spherical-metadata
+		double PosePitchDegrees;        // Pitch, measured in degrees above the horizon, for the center in the image. Value must be >= -90 and <= 90.
+		double PoseRollDegrees;         // Roll, measured in degrees, of the image where level with the horizon is 0. As roll increases, the horizon rotates counterclockwise in the image. Value must be > -180 and <= 180.
+		bool hasPosePitchDegrees() const; // Return true if PosePitchDegrees is available
+		bool hasPoseRollDegrees() const; // Return true if PoseRollDegrees is available
+	} GPano;
 };
 
 } // namespace TinyEXIF

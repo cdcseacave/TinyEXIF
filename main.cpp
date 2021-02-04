@@ -147,5 +147,9 @@ int main(int argc, const char** argv)
 		std::cout << "GeoLocation.GPSTimeStamp " << imageEXIF.GeoLocation.GPSTimeStamp << "\n";
 	if (!imageEXIF.GeoLocation.GPSDateStamp.empty())
 		std::cout << "GeoLocation.GPSDateStamp " << imageEXIF.GeoLocation.GPSDateStamp << "\n";
+	if (imageEXIF.GPano.hasPosePitchDegrees())
+		std::cout << "GPano.PosePitchDegrees " << imageEXIF.GPano.PosePitchDegrees << "\n";
+	if (imageEXIF.GPano.hasPoseRollDegrees())
+		std::cout << "GPano.PoseRollDegrees " << imageEXIF.GPano.PoseRollDegrees << "\n";
 	return EXIT_SUCCESS;
 }
