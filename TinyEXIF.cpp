@@ -41,11 +41,13 @@
 #include <algorithm>
 
 #ifdef _MSC_VER
-#include <tchar.h>
+namespace {
+    int strcasecmp(const char* a, const char* b) {
+        return _stricmp(a, b);
+    }
+}
 #else
 #include <strings.h>
-#define _tcsncmp         	strncmp
-#define _tcsicmp         	strcasecmp
 #endif
 
 
@@ -60,7 +62,7 @@ namespace Tools {
 			return NULL;
 		for (size_t i=len-needle_len; i-- > 0; ) {
 			if (haystack[0] == needle[0] &&
-				0 == _tcsncmp(haystack, needle, needle_len))
+				0 == strncmp(haystack, needle, needle_len))
 				return haystack;
 			haystack++;
 		}
@@ -622,7 +624,7 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 void EXIFInfo::parseIFDMakerNote(EntryParser& parser) {
 	const unsigned startOff = parser.GetOffset();
 	const uint32_t off = parser.GetSubIFD();
-	if (0 != _tcsicmp(Make.c_str(), "DJI"))
+	if (0 != strcasecmp(Make.c_str(), "DJI"))
 		return;
 	int num_entries = EntryParser::parse16(parser.GetBuffer()+off, parser.IsIntelAligned());
 	if (uint32_t(2 + 12 * num_entries) > parser.GetLength())
@@ -632,7 +634,7 @@ void EXIFInfo::parseIFDMakerNote(EntryParser& parser) {
 	--num_entries;
 	std::string maker;
 	if (parser.GetTag() == 1 && parser.Fetch(maker)) {
-		if (0 == _tcsicmp(maker.c_str(), "DJI")) {
+		if (0 == strcasecmp(maker.c_str(), "DJI")) {
 			while (--num_entries >= 0) {
 				parser.ParseTag();
 				switch (parser.GetTag()) {
@@ -1029,11 +1031,11 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 	if (element != NULL) {
 		const char* const szProjectionType(element->GetText());
 		if (szProjectionType != NULL) {
-			if (0 == _tcsicmp(szProjectionType, "perspective"))
+			if (0 == strcasecmp(szProjectionType, "perspective"))
 				ProjectionType = 1;
 			else
-			if (0 == _tcsicmp(szProjectionType, "equirectangular") ||
-				0 == _tcsicmp(szProjectionType, "spherical"))
+			if (0 == strcasecmp(szProjectionType, "equirectangular") ||
+				0 == strcasecmp(szProjectionType, "spherical"))
 				ProjectionType = 2;
 		}
 	}
@@ -1060,7 +1062,7 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		}
 	};
 	const char* szAbout(document->Attribute("rdf:about"));
-	if (0 == _tcsicmp(Make.c_str(), "DJI") || (szAbout != NULL && 0 == _tcsicmp(szAbout, "DJI Meta Data"))) {
+	if (0 == strcasecmp(Make.c_str(), "DJI") || (szAbout != NULL && 0 == strcasecmp(szAbout, "DJI Meta Data"))) {
 		ParseXMP::Value(document, "drone-dji:AbsoluteAltitude", GeoLocation.Altitude);
 		ParseXMP::Value(document, "drone-dji:RelativeAltitude", GeoLocation.RelativeAltitude);
 		ParseXMP::Value(document, "drone-dji:GimbalRollDegree", GeoLocation.RollDegree);
@@ -1070,7 +1072,7 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterX", Calibration.OpticalCenterX);
 		ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterY", Calibration.OpticalCenterY);
 	} else
-	if (0 == _tcsicmp(Make.c_str(), "senseFly") || 0 == _tcsicmp(Make.c_str(), "Sentera")) {
+	if (0 == strcasecmp(Make.c_str(), "senseFly") || 0 == strcasecmp(Make.c_str(), "Sentera")) {
 		ParseXMP::Value(document, "Camera:Roll", GeoLocation.RollDegree);
 		if (ParseXMP::Value(document, "Camera:Pitch", GeoLocation.PitchDegree)) {
 			// convert to DJI format: senseFly uses pitch 0 as NADIR, whereas DJI -90
@@ -1080,7 +1082,7 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		ParseXMP::Value(document, "Camera:GPSXYAccuracy", GeoLocation.AccuracyXY);
 		ParseXMP::Value(document, "Camera:GPSZAccuracy", GeoLocation.AccuracyZ);
 	} else
-	if (0 == _tcsicmp(Make.c_str(), "PARROT")) {
+	if (0 == strcasecmp(Make.c_str(), "PARROT")) {
 		ParseXMP::Value(document, "Camera:Roll", GeoLocation.RollDegree) ||
 		ParseXMP::Value(document, "drone-parrot:CameraRollDegree", GeoLocation.RollDegree);
 		if (ParseXMP::Value(document, "Camera:Pitch", GeoLocation.PitchDegree) ||
