@@ -32,7 +32,11 @@
 */
 
 #include "TinyEXIF.h"
+
+#ifndef TINYEXIF_NO_XMP_SUPPORT
 #include <tinyxml2.h>
+#endif // TINYEXIF_NO_XMP_SUPPORT
+
 #include <cstdint>
 #include <cstdio>
 #include <cmath>
@@ -434,11 +438,13 @@ void EXIFInfo::parseIFDImage(EntryParser& parser, unsigned& exif_sub_ifd_offset,
 void EXIFInfo::parseIFDExif(EntryParser& parser) {
 	switch (parser.GetTag()) {
 	case 0x02bc:
+#ifndef TINYEXIF_NO_XMP_SUPPORT
 		// XMP Metadata (Adobe technote 9-14-02)
 		if (parser.IsUndefined()) {
 			const std::string strXML(parser.FetchString());
 			parseFromXMPSegmentXML(strXML.c_str(), (unsigned)strXML.length());
 		}
+#endif // TINYEXIF_NO_XMP_SUPPORT
 		break;
 
 	case 0x829a:
@@ -808,6 +814,7 @@ int EXIFInfo::parseFrom(EXIFStream& stream) {
 				return app1s(PARSE_INVALID_JPEG);
 			switch (int ret=parseFromEXIFSegment(buf, sectionLength)) {
 			case PARSE_ABSENT_DATA:
+#ifndef TINYEXIF_NO_XMP_SUPPORT
 				switch (ret=parseFromXMPSegment(buf, sectionLength)) {
 				case PARSE_ABSENT_DATA:
 					break;
@@ -818,6 +825,7 @@ int EXIFInfo::parseFrom(EXIFStream& stream) {
 				default:
 					return app1s(ret); // some error
 				}
+#endif // TINYEXIF_NO_XMP_SUPPORT
 				break;
 			case PARSE_SUCCESS:
 				if ((app1s|=FIELD_EXIF) == FIELD_ALL)
@@ -970,6 +978,8 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	return PARSE_SUCCESS;
 }
 
+#ifndef TINYEXIF_NO_XMP_SUPPORT
+
 //
 // Main parsing function for a XMP segment.
 // Do a sanity check by looking for bytes "http://ns.adobe.com/xap/1.0/\0".
@@ -1098,6 +1108,7 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 	return PARSE_SUCCESS;
 }
 
+#endif // TINYEXIF_NO_XMP_SUPPORT
 
 void EXIFInfo::Geolocation_t::parseCoords() {
 	// Convert GPS latitude

@@ -117,11 +117,13 @@ public:
 	// available (i.e., a blob starting with the bytes "Exif\0\0").
 	int parseFromEXIFSegment(const uint8_t* buf, unsigned len);
 
+#ifndef TINYEXIF_NO_XMP_SUPPORT
 	// Parsing function for an XMP segment. This is used internally by parseFrom()
 	// but can be called for special cases where only the XMP section is 
 	// available (i.e., a blob starting with the bytes "http://ns.adobe.com/xap/1.0/\0").
 	int parseFromXMPSegment(const uint8_t* buf, unsigned len);
 	int parseFromXMPSegmentXML(const char* szXML, unsigned len);
+#endif // TINYEXIF_NO_XMP_SUPPORT
 
 	// Set all data members to default values.
 	// Should be called before parsing a new stream.
