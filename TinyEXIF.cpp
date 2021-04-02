@@ -338,6 +338,9 @@ EXIFInfo::EXIFInfo() : Fields(FIELD_NA) {
 EXIFInfo::EXIFInfo(EXIFStream& stream) {
 	parseFrom(stream);
 }
+EXIFInfo::EXIFInfo(std::istream& stream) {
+	parseFrom(stream);
+}
 EXIFInfo::EXIFInfo(const uint8_t* data, unsigned length) {
 	parseFrom(data, length);
 }
@@ -847,6 +850,36 @@ int EXIFInfo::parseFrom(EXIFStream& stream) {
 	}
 	return app1s();
 }
+
+
+int EXIFInfo::parseFrom(std::istream& stream)
+{
+	class EXIFStdStream : public EXIFStream {
+	public:
+		EXIFStdStream(std::istream& stream)
+			: stream(stream) {
+			// Would be nice to assert here that the stream was opened in binary mode, but
+			// apparently that's not possible: https://stackoverflow.com/a/224259/19254
+		}
+		bool IsValid() const override {
+			return !!stream;
+		}
+		const uint8_t* GetBuffer(unsigned desiredLength) override {
+			buffer.resize(desiredLength);
+			if (!stream.read(reinterpret_cast<char*>(buffer.data()), desiredLength))
+				return NULL;
+			return buffer.data();
+		}
+		bool SkipBuffer(unsigned desiredLength) override {
+			return (bool)stream.seekg(desiredLength, std::ios::cur);
+		}
+	private:
+		std::istream& stream;
+		std::vector<uint8_t> buffer;
+	};
+	return parseFrom(EXIFStdStream(stream));
+}
+
 
 int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
 	class EXIFStreamBuffer : public EXIFStream {
