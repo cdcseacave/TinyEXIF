@@ -43,6 +43,7 @@
 #include <cfloat>
 #include <vector>
 #include <algorithm>
+#include <iostream>
 
 #ifdef _MSC_VER
 namespace {
@@ -877,7 +878,8 @@ int EXIFInfo::parseFrom(std::istream& stream)
 		std::istream& stream;
 		std::vector<uint8_t> buffer;
 	};
-	return parseFrom(EXIFStdStream(stream));
+	EXIFStdStream streamWrapper(stream);
+	return parseFrom(streamWrapper);
 }
 
 
