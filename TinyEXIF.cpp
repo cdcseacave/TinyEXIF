@@ -853,8 +853,7 @@ int EXIFInfo::parseFrom(EXIFStream& stream) {
 }
 
 
-int EXIFInfo::parseFrom(std::istream& stream)
-{
+int EXIFInfo::parseFrom(std::istream& stream) {
 	class EXIFStdStream : public EXIFStream {
 	public:
 		EXIFStdStream(std::istream& stream)
