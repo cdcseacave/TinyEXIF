@@ -100,6 +100,7 @@ class TINYEXIF_LIB EXIFInfo {
 public:
 	EXIFInfo();
 	EXIFInfo(EXIFStream& stream);
+	EXIFInfo(std::istream& stream); // NB: the stream must have been opened in binary mode
 	EXIFInfo(const uint8_t* data, unsigned length);
 
 	// Parsing function for an entire JPEG image stream.
@@ -110,6 +111,7 @@ public:
 	// RETURN:  PARSE_SUCCESS (0) on success with 'result' filled out
 	//          error code otherwise, as defined by the PARSE_* macros
 	int parseFrom(EXIFStream& stream);
+	int parseFrom(std::istream& stream); // NB: the stream must have been opened in binary mode
 	int parseFrom(const uint8_t* data, unsigned length);
 
 	// Parsing function for an EXIF segment. This is used internally by parseFrom()

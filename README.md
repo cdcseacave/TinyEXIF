@@ -18,16 +18,11 @@ int main(int argc, const char** argv) {
 		return -1;
 	}
 
-	// read entire image file
-	std::ifstream file(argv[1], std::ifstream::in|std::ifstream::binary);
-	file.seekg(0,std::ios::end);
-	std::streampos length = file.tellg();
-	file.seekg(0,std::ios::beg);
-	std::vector<uint8_t> data(length);
-	file.read((char*)data.data(), length);
+	// open a stream to read just the necessary parts of the image file
+	std::ifstream istream(argv[1], std::ifstream::binary);
 
 	// parse image EXIF and XMP metadata
-	TinyEXIF::EXIFInfo imageEXIF(data.data(), length);
+	TinyEXIF::EXIFInfo imageEXIF(istream);
 	if (imageEXIF.Fields)
 		std::cout
 			<< "Image Description " << imageEXIF.ImageDescription << "\n"

@@ -9,27 +9,6 @@
 #include <vector>   // std::vector
 #include <iomanip>  // std::setprecision
 
-class EXIFStreamFile : public TinyEXIF::EXIFStream {
-public:
-	explicit EXIFStreamFile(const char* fileName)
-		: file(fileName, std::ifstream::in|std::ifstream::binary) {}
-	bool IsValid() const override {
-		return file.is_open();
-	}
-	const uint8_t* GetBuffer(unsigned desiredLength) override {
-		buffer.resize(desiredLength);
-		if (!file.read((char*)buffer.data(), desiredLength))
-			return NULL;
-		return buffer.data();
-	}
-	bool SkipBuffer(unsigned desiredLength) override {
-		return (bool)file.seekg(desiredLength,std::ios::cur);
-	}
-private:
-	std::ifstream file;
-	std::vector<uint8_t> buffer;
-};
-
 int main(int argc, const char** argv)
 {
 	if (argc != 2) {
@@ -37,9 +16,9 @@ int main(int argc, const char** argv)
 		return -1;
 	}
 
-	// read entire image file
-	EXIFStreamFile stream(argv[1]);
-	if (!stream.IsValid()) {
+	// open a stream to read just the necessary parts of the image file
+	std::ifstream stream(argv[1], std::ios::binary);
+	if (!stream) {
 		std::cout << "error: can not open '" << argv[1] << "'\n";
 		return -2;
 	}
