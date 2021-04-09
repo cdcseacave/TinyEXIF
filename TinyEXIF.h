@@ -308,6 +308,13 @@ public:
 		bool hasPosePitchDegrees() const; // Return true if PosePitchDegrees is available
 		bool hasPoseRollDegrees() const; // Return true if PoseRollDegrees is available
 	} GPano;
+
+	struct MicroVideo_t                // Google camera video file in metadata
+	{
+		uint32_t HasMicroVideo;			// not zero if exists
+		uint32_t MicroVideoVersion;		// just regularinfo
+		uint32_t MicroVideoOffset;		// offset from end of file
+	} MicroVideo;
 };
 
 } // namespace TinyEXIF

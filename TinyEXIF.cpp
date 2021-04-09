@@ -1104,6 +1104,17 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 			}
 			return false;
 		}
+		// same as previous function but with unsigned int results
+		static bool Value(const tinyxml2::XMLElement* document, const char* name, uint32_t& value) {
+			const char* szAttribute = document->Attribute(name);
+			if (szAttribute == NULL) {
+				const tinyxml2::XMLElement* const element(document->FirstChildElement(name));
+				if (element == NULL || (szAttribute = element->GetText()) == NULL)
+					return false;
+			}
+			value = strtoul(szAttribute, NULL, 0); return true;
+			return false;
+		}
 	};
 	const char* szAbout(document->Attribute("rdf:about"));
 	if (0 == strcasecmp(Make.c_str(), "DJI") || (szAbout != NULL && 0 == strcasecmp(szAbout, "DJI Meta Data"))) {
@@ -1140,6 +1151,14 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 	}
 	ParseXMP::Value(document, "GPano:PosePitchDegrees", GPano.PosePitchDegrees);
 	ParseXMP::Value(document, "GPano:PoseRollDegrees", GPano.PoseRollDegrees);
+
+	const char* attrMicro(document->Attribute("GCamera:MicroVideo"));
+	if (attrMicro)
+	{
+		ParseXMP::Value(document, "GCamera:MicroVideo", MicroVideo.HasMicroVideo);
+		ParseXMP::Value(document, "GCamera:MicroVideoVersion", MicroVideo.MicroVideoVersion);
+		ParseXMP::Value(document, "GCamera:MicroVideoOffset", MicroVideo.MicroVideoOffset);
+	}
 
 	return PARSE_SUCCESS;
 }
@@ -1290,6 +1309,11 @@ void EXIFInfo::clear() {
 	// GPano
 	GPano.PosePitchDegrees = DBL_MAX;
 	GPano.PoseRollDegrees = DBL_MAX;
+
+	// Video metadata
+	MicroVideo.HasMicroVideo = 0;
+	MicroVideo.MicroVideoVersion = 0;
+	MicroVideo.MicroVideoOffset = 0;
 }
 
 } // namespace TinyEXIF
