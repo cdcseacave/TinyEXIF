@@ -1152,14 +1152,12 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 	ParseXMP::Value(document, "GPano:PosePitchDegrees", GPano.PosePitchDegrees);
 	ParseXMP::Value(document, "GPano:PoseRollDegrees", GPano.PoseRollDegrees);
 
-	const char* attrMicro(document->Attribute("GCamera:MicroVideo"));
-	if (attrMicro)
-	{
+	// parse GCamera:MicroVideo
+	if (document->Attribute("GCamera:MicroVideo")) {
 		ParseXMP::Value(document, "GCamera:MicroVideo", MicroVideo.HasMicroVideo);
 		ParseXMP::Value(document, "GCamera:MicroVideoVersion", MicroVideo.MicroVideoVersion);
 		ParseXMP::Value(document, "GCamera:MicroVideoOffset", MicroVideo.MicroVideoOffset);
 	}
-
 	return PARSE_SUCCESS;
 }
 
