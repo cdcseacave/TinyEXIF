@@ -34,6 +34,7 @@
 #ifndef __TINYEXIF_H__
 #define __TINYEXIF_H__
 
+#include <cstdint>
 #include <string>
 #include <vector>
 
