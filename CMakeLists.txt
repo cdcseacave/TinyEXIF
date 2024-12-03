@@ -10,7 +10,7 @@ find_package(tinyxml2 REQUIRED)
 ################################
 # set lib version here
 
-set(GENERIC_LIB_VERSION "1.0.1")
+set(GENERIC_LIB_VERSION "1.0.3")
 set(GENERIC_LIB_SOVERSION "1")
 
 ################################
