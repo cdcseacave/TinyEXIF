@@ -95,9 +95,6 @@ namespace Tools {
 
 namespace TinyEXIF {
 
-uint32_t const _ONE32 = 1;
-bool const IS_LITTLE_ENDIAN = (reinterpret_cast<uint8_t const*>(&_ONE32))[0] == 1;
-
 enum JPEG_MARKERS {
 	JM_START = 0xFF,
 	JM_SOF0  = 0xC0,
@@ -946,6 +943,8 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	//  8 bytes
 	if (offs + 8 > len)
 		return PARSE_CORRUPT_DATA;
+	const uint32_t _ONE32 = 1;
+	const bool IS_LITTLE_ENDIAN = reinterpret_cast<uint8_t const*>(&_ONE32)[0] == 1;
 	bool alignIntel;
 	if (buf[offs] == 'I' && buf[offs+1] == 'I')
 		alignIntel = IS_LITTLE_ENDIAN; // 1: Intel byte alignment
