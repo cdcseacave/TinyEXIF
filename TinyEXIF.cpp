@@ -32,18 +32,19 @@
 */
 
 #include "TinyEXIF.h"
+#include <cstddef>
 
 #ifndef TINYEXIF_NO_XMP_SUPPORT
 #include <tinyxml2.h>
 #endif // TINYEXIF_NO_XMP_SUPPORT
 
-#include <cstdint>
 #include <cstdio>
 #include <cmath>
 #include <cfloat>
 #include <vector>
 #include <algorithm>
 #include <iostream>
+#include <sstream>
 
 #ifdef _MSC_VER
 namespace {
@@ -1114,8 +1115,19 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 				if (element == NULL || (szAttribute = element->GetText()) == NULL)
 					return false;
 			}
-			value = strtoul(szAttribute, NULL, 0); return true;
-			return false;
+			value = strtoul(szAttribute, NULL, 0);
+			return true;
+		}
+		// same as previous function but with std::string
+		static bool Value(const tinyxml2::XMLElement* document, const char* name, std::string& value) {
+			const char* szAttribute = document->Attribute(name);
+			if (szAttribute == NULL) {
+				const tinyxml2::XMLElement* const element(document->FirstChildElement(name));
+				if (element == NULL || (szAttribute = element->GetText()) == NULL)
+					return false;
+			}
+			value = std::string(szAttribute);
+			return true;
 		}
 	};
 	const char* szAbout(document->Attribute("rdf:about"));
@@ -1128,6 +1140,29 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		ParseXMP::Value(document, "drone-dji:CalibratedFocalLength", Calibration.FocalLength);
 		ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterX", Calibration.OpticalCenterX);
 		ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterY", Calibration.OpticalCenterY);
+		ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterY", Calibration.OpticalCenterY);
+		std::string dewarpData;
+		ParseXMP::Value(document, "drone-dji:DewarpFlag", Distortion.DewarpFlag);
+		ParseXMP::Value(document, "drone-dji:DewarpData", dewarpData);
+		std::vector<double> distortionParams;
+		size_t pos = dewarpData.find(';');
+		if (pos != std::string::npos) {
+			std::stringstream ss(dewarpData.substr(pos + 1));
+			std::string item;
+			while (std::getline(ss, item, ',')) {
+				distortionParams.push_back(std::stod(item));
+			}
+		}
+		// The DewarpData string has the following format:
+		// date;Fx,Fy,Cx,Cy,K1,K2,P1,P2,K3
+		// , where Fx, Fy are focal lengths in pixels, Cx, Cy are optical center offsets from the image center in pixels
+		if (distortionParams.size() == 9) {
+			Distortion.K1 = distortionParams[4];
+			Distortion.K2 = distortionParams[5];
+			Distortion.P1 = distortionParams[6];
+			Distortion.P2 = distortionParams[7];
+			Distortion.K3 = distortionParams[8];
+		}
 	} else
 	if (0 == strcasecmp(Make.c_str(), "senseFly") || 0 == strcasecmp(Make.c_str(), "Sentera")) {
 		ParseXMP::Value(document, "Camera:Roll", GeoLocation.RollDegree);
@@ -1209,6 +1244,9 @@ bool EXIFInfo::Geolocation_t::hasOrientation() const {
 }
 bool EXIFInfo::Geolocation_t::hasSpeed() const {
 	return SpeedX != DBL_MAX && SpeedY != DBL_MAX && SpeedZ != DBL_MAX;
+}
+bool EXIFInfo::Geolocation_t::hasAccuracy() const {
+	return AccuracyXY != 0 && AccuracyZ != 0;
 }
 
 bool EXIFInfo::GPano_t::hasPosePitchDegrees() const {
@@ -1305,6 +1343,14 @@ void EXIFInfo::clear() {
 	GeoLocation.LonComponents.minutes   = 0;
 	GeoLocation.LonComponents.seconds   = 0;
 	GeoLocation.LonComponents.direction = 0;
+
+	// Distortion
+	Distortion.DewarpFlag = UINT32_MAX;
+	Distortion.K1 = 0;
+	Distortion.K2 = 0;
+	Distortion.P1 = 0;
+	Distortion.P2 = 0;
+	Distortion.K3 = 0;
 
 	// GPano
 	GPano.PosePitchDegrees = DBL_MAX;

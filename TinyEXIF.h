@@ -252,6 +252,18 @@ public:
 		double OpticalCenterX;          // Principal point X (pixels)
 		double OpticalCenterY;          // Principal point Y (pixels)
 	} Calibration;
+	struct TINYEXIF_LIB Distortion_t { // Lens distortion information
+		uint32_t DewarpFlag;            // Dewarp flag - indicates whether undistortion has been applied to the image
+										// UINT32_MAX: flag missing from EXIF data
+										// 0: no dewarp (raw image) - the image is distorted, should also have coefficients
+										// 1: dewarp applied (undistorted image)
+		double K1;
+		double K2;
+		double P1;
+		double P2;
+		double K3;
+		bool hasDewarpFlag() const { return DewarpFlag != UINT32_MAX; } // Return true if DewarpFlag is available
+	} Distortion;
 	struct TINYEXIF_LIB LensInfo_t {    // Lens information
 		double FStopMin;                // Min aperture (f-stop)
 		double FStopMax;                // Max aperture (f-stop)
@@ -302,6 +314,7 @@ public:
 		bool hasRelativeAltitude()const;// Return true if (rel_alt) is available
 		bool hasOrientation() const;    // Return true if (roll,yaw,pitch) is available
 		bool hasSpeed() const;          // Return true if (speedX,speedY,speedZ) is available
+		bool hasAccuracy() const;       // Return true if (accuracyXY,accuracyZ) is available
 	} GeoLocation;
 	struct TINYEXIF_LIB GPano_t {           // Spherical metadata. https://developers.google.com/streetview/spherical-metadata
 		double PosePitchDegrees;        // Pitch, measured in degrees above the horizon, for the center in the image. Value must be >= -90 and <= 90.
