@@ -251,6 +251,7 @@ public:
 		double FocalLength;             // Focal length (pixels)
 		double OpticalCenterX;          // Principal point X (pixels)
 		double OpticalCenterY;          // Principal point Y (pixels)
+		bool hasCalibration() const;    // Return true if FocalLength, OpticalCenterX, OpticalCenterY are available (nonzero)
 	} Calibration;
 	struct TINYEXIF_LIB Distortion_t { // Lens distortion information
 		uint32_t DewarpFlag;            // Dewarp flag - indicates whether undistortion has been applied to the image
@@ -262,7 +263,8 @@ public:
 		double P1;
 		double P2;
 		double K3;
-		bool hasDewarpFlag() const { return DewarpFlag != UINT32_MAX; } // Return true if DewarpFlag is available
+		bool hasDewarpFlag() const; // Return true if DewarpFlag is available
+		bool hasDistortion() const; // Return true if any of K1, K2, P1, P2, K3 are available
 	} Distortion;
 	struct TINYEXIF_LIB LensInfo_t {    // Lens information
 		double FStopMin;                // Min aperture (f-stop)

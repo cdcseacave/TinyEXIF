@@ -1200,6 +1200,17 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 
 #endif // TINYEXIF_NO_XMP_SUPPORT
 
+bool EXIFInfo::Calibration_t::hasCalibration() const {
+	return FocalLength > 0.0 && OpticalCenterX > 0.0 && OpticalCenterY > 0.0;
+}
+
+bool EXIFInfo::Distortion_t::hasDewarpFlag() const {
+	return DewarpFlag != UINT32_MAX;
+}
+bool EXIFInfo::Distortion_t::hasDistortion() const {
+	return K1 != 0.0 || K2 != 0.0 || P1 != 0.0 || P2 != 0.0 || K3 != 0.0;
+}
+
 void EXIFInfo::Geolocation_t::parseCoords() {
 	// Convert GPS latitude
 	if (LatComponents.degrees != DBL_MAX ||
