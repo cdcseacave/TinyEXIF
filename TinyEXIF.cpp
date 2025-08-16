@@ -33,11 +33,6 @@
 
 #include "TinyEXIF.h"
 #include <cstddef>
-
-#ifndef TINYEXIF_NO_XMP_SUPPORT
-#include <tinyxml2.h>
-#endif // TINYEXIF_NO_XMP_SUPPORT
-
 #include <cstdio>
 #include <cmath>
 #include <cfloat>
@@ -45,6 +40,10 @@
 #include <algorithm>
 #include <iostream>
 #include <sstream>
+
+#ifndef TINYEXIF_NO_XMP_SUPPORT
+#include <tinyxml2.h>
+#endif // TINYEXIF_NO_XMP_SUPPORT
 
 #ifdef _MSC_VER
 namespace {
