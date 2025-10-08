@@ -130,5 +130,11 @@ int main(int argc, const char** argv)
 		std::cout << "GPano.PosePitchDegrees " << imageEXIF.GPano.PosePitchDegrees << "\n";
 	if (imageEXIF.GPano.hasPoseRollDegrees())
 		std::cout << "GPano.PoseRollDegrees " << imageEXIF.GPano.PoseRollDegrees << "\n";
+	if (imageEXIF.Distortion.hasDewarpFlag())
+		std::cout << "Distortion.DewarpFlag " << imageEXIF.Distortion.DewarpFlag << "\n";
+	if (imageEXIF.Distortion.hasDistortion())
+		std::cout << "Distortion [K1 K2 P1 P2 K3] " << std::setprecision(6)
+		          << imageEXIF.Distortion.K1 << " " << imageEXIF.Distortion.K2 << " " << imageEXIF.Distortion.P1
+		          << " " << imageEXIF.Distortion.P2 << " " << imageEXIF.Distortion.K3 << "\n";
 	return EXIT_SUCCESS;
 }

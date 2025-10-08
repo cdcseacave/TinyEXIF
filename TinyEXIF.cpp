@@ -1139,7 +1139,6 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		ParseXMP::Value(document, "drone-dji:CalibratedFocalLength", Calibration.FocalLength);
 		ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterX", Calibration.OpticalCenterX);
 		ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterY", Calibration.OpticalCenterY);
-		ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterY", Calibration.OpticalCenterY);
 		std::string dewarpData;
 		ParseXMP::Value(document, "drone-dji:DewarpFlag", Distortion.DewarpFlag);
 		ParseXMP::Value(document, "drone-dji:DewarpData", dewarpData);
