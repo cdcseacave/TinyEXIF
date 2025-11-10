@@ -1,187 +1,84 @@
-cmake_minimum_required(VERSION 3.10)
-
-project(TinyEXIF)
-include(GNUInstallDirs)
-
-find_package(tinyxml2 REQUIRED)
-
-#CMAKE_BUILD_TOOL
+cmake_minimum_required(VERSION 3.15)
 
 ################################
 # set lib version here
 
-set(GENERIC_LIB_VERSION "1.0.3")
+project(TinyEXIF VERSION 1.0.3)
 set(GENERIC_LIB_SOVERSION "1")
+
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
+find_package(tinyxml2 CONFIG REQUIRED)
 
 ################################
 # Add definitions
 
 set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
 
 ################################
 # Add targets
 # By Default shared libray is being built
-# To build static libs also - Do cmake . -DBUILD_STATIC_LIBS:BOOL=ON
-# User can choose not to build shared library by using cmake -DBUILD_SHARED_LIBS:BOOL=OFF
-# To build only static libs use cmake . -DBUILD_SHARED_LIBS:BOOL=OFF -DBUILD_STATIC_LIBS:BOOL=ON
+# User can choose to build static library by using cmake -DBUILD_SHARED_LIBS:BOOL=OFF
 # To build the demo binary, use cmake . -DBUILD_DEMO:BOOL=ON
 
 option(BUILD_SHARED_LIBS "build as shared library" ON)
-option(BUILD_STATIC_LIBS "build as static library" OFF)
 option(LINK_CRT_STATIC_LIBS "link CRT static library" OFF)
 option(BUILD_DEMO "build demo binary" ON)
 
-# set MSVC runtime linkage to static or dynamic
-# as in: https://stackoverflow.com/questions/10113017/setting-the-msvc-runtime-in-cmake
-macro(configure_runtime CRT_RUNTIME)
-	if(MSVC)
-		# Default to statically-linked runtime.
-		if("${CRT_RUNTIME}" STREQUAL "")
-			set(CRT_RUNTIME "static")
-		endif()
-		# Set compiler options.
-		set(variables
-			CMAKE_C_FLAGS_DEBUG
-			CMAKE_C_FLAGS_MINSIZEREL
-			CMAKE_C_FLAGS_RELEASE
-			CMAKE_C_FLAGS_RELWITHDEBINFO
-			CMAKE_CXX_FLAGS_DEBUG
-			CMAKE_CXX_FLAGS_MINSIZEREL
-			CMAKE_CXX_FLAGS_RELEASE
-			CMAKE_CXX_FLAGS_RELWITHDEBINFO
-		)
-		if(${CRT_RUNTIME} STREQUAL "static")
-			message(STATUS "MSVC -> forcing use of statically-linked runtime.")
-			foreach(variable ${variables})
-				if(${variable} MATCHES "/MD")
-					string(REGEX REPLACE "/MD" "/MT" ${variable} "${${variable}}")
-				endif()
-			endforeach()
-		else()
-			message(STATUS "MSVC -> forcing use of dynamically-linked runtime.")
-			foreach(variable ${variables})
-				if(${variable} MATCHES "/MT")
-					string(REGEX REPLACE "/MT" "/MD" ${variable} "${${variable}}")
-				endif()
-			endforeach()
-		endif()
-	endif()
-endmacro()
-
 if(LINK_CRT_STATIC_LIBS)
 	# set MSVC runtime linkage to static
-	configure_runtime("static")
+	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 endif()
 
-# to distinguish between debug and release lib
-set(CMAKE_DEBUG_POSTFIX "d")
+add_library(TinyEXIF TinyEXIF.cpp TinyEXIF.h)
+add_library(TinyEXIF::TinyEXIF ALIAS TinyEXIF)
 
-if(BUILD_SHARED_LIBS)
-	add_library(TinyEXIF SHARED TinyEXIF.cpp TinyEXIF.h)
-
-	if(MSVC_VERSION GREATER 1300)
-		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4251") # needs to have dll-interface
-	endif()
-
-	target_link_libraries(TinyEXIF tinyxml2::tinyxml2)
-	set_target_properties(TinyEXIF PROPERTIES
-		COMPILE_DEFINITIONS "TINYEXIF_EXPORT"
-		VERSION "${GENERIC_LIB_VERSION}"
-		SOVERSION "${GENERIC_LIB_SOVERSION}")
-
-
-	if(DEFINED CMAKE_VERSION AND NOT "${CMAKE_VERSION}" VERSION_LESS "2.8.11")
-		target_include_directories(TinyEXIF PUBLIC 
-								$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>
-								$<INSTALL_INTERFACE:${CMAKE_INSTALL_PREFIX}/include>)
-
-		if(MSVC)
-			target_compile_definitions(TinyEXIF PUBLIC _CRT_SECURE_NO_WARNINGS)
-		endif()
-	else()
-		include_directories(${PROJECT_SOURCE_DIR})
-
-		if(MSVC)
-			add_definitions(-D_CRT_SECURE_NO_WARNINGS)
-		endif()
-	endif()
-
-	# export targets for find_package config mode
-	export(TARGETS TinyEXIF
-			FILE ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}Targets.cmake)
-
-	install(TARGETS TinyEXIF
-			EXPORT ${CMAKE_PROJECT_NAME}Targets
-			RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-			LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-			ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+if(MSVC_VERSION GREATER 1300)
+	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4251") # needs to have dll-interface
 endif()
 
-if(BUILD_STATIC_LIBS)
-	add_library(TinyEXIFstatic STATIC TinyEXIF.cpp TinyEXIF.h)
-	
-	target_link_libraries(TinyEXIFstatic tinyxml2::tinyxml2)
-	set_target_properties(TinyEXIFstatic PROPERTIES
-			OUTPUT_NAME TinyEXIF
-			VERSION "${GENERIC_LIB_VERSION}"
-			SOVERSION "${GENERIC_LIB_SOVERSION}")
+target_link_libraries(TinyEXIF tinyxml2::tinyxml2)
+set_target_properties(TinyEXIF PROPERTIES
+	DEFINE_SYMBOL "TINYEXIF_EXPORT"
+	VERSION "${TinyEXIF_VERSION}"
+	SOVERSION "${GENERIC_LIB_SOVERSION}"
+)
 
-	if(DEFINED CMAKE_VERSION AND NOT "${CMAKE_VERSION}" VERSION_LESS "2.8.11")
-		target_include_directories(TinyEXIFstatic PUBLIC 
-								$<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}>
-								$<INSTALL_INTERFACE:${CMAKE_INSTALL_PREFIX}/include>)
+target_include_directories(TinyEXIF PUBLIC
+	"$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>"
+	"$<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>"
+)
 
-		if(MSVC)
-			target_compile_definitions(TinyEXIFstatic PUBLIC _CRT_SECURE_NO_WARNINGS)
-		endif()
-	else()
-		include_directories(${PROJECT_SOURCE_DIR})
+target_compile_definitions(TinyEXIF
+	PRIVATE $<$<CXX_COMPILER_ID:MSVC>:_CRT_SECURE_NO_WARNINGS>)
 
-		if(MSVC)
-			add_definitions(-D_CRT_SECURE_NO_WARNINGS)
-		endif()
-	endif()
-
-	# export targets for find_package config mode
-	export(TARGETS TinyEXIFstatic
-			FILE ${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}Targets.cmake)
-
-	install(TARGETS TinyEXIFstatic
-			EXPORT ${CMAKE_PROJECT_NAME}Targets
-			RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-			LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-			ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
-endif()
-
-if(BUILD_DEMO)
-	add_executable(TinyEXIFdemo main.cpp)
-	if(BUILD_SHARED_LIBS)
-		add_dependencies(TinyEXIFdemo TinyEXIF)
-		target_link_libraries(TinyEXIFdemo TinyEXIF)
-		target_compile_definitions(TinyEXIFdemo PRIVATE TINYEXIF_IMPORT)
-	else(BUILD_STATIC_LIBS)
-		add_dependencies(TinyEXIFdemo TinyEXIFstatic)
-		target_link_libraries(TinyEXIFdemo TinyEXIFstatic tinyxml2::tinyxml2)
-	endif()
-endif()
+install(TARGETS TinyEXIF
+	EXPORT TinyEXIFTargets
+	RUNTIME	DESTINATION ${CMAKE_INSTALL_BINDIR}
+	LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+	ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+	INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
 
 install(FILES TinyEXIF.h DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 
-foreach(p LIB INCLUDE)
-	set(var CMAKE_INSTALL_${p}DIR)
-	if(NOT IS_ABSOLUTE "${${var}}")
-		set(${var} "${CMAKE_INSTALL_PREFIX}/${${var}}")
-	endif()
-endforeach()
+install(EXPORT TinyEXIFTargets
+	FILE TinyEXIFTargets.cmake
+	NAMESPACE TinyEXIF::
+	DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/TinyEXIF
+)
 
-file(WRITE
-	${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}Config.cmake
-	"include(\${CMAKE_CURRENT_LIST_DIR}/${CMAKE_PROJECT_NAME}Targets.cmake)\n")
+configure_package_config_file(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Config.cmake.in
+	"${CMAKE_CURRENT_BINARY_DIR}/TinyEXIFConfig.cmake"
+	INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/TinyEXIF
+)
 
-install(FILES
-		${CMAKE_BINARY_DIR}/${CMAKE_PROJECT_NAME}Config.cmake
-		DESTINATION lib/cmake/${CMAKE_PROJECT_NAME})
+if(BUILD_DEMO)
+	add_executable(TinyEXIFdemo main.cpp)
+	target_link_libraries(TinyEXIFdemo TinyEXIF)
+	target_compile_definitions(TinyEXIFdemo PRIVATE $<$<BOOL:${BUILD_SHARED_LIBS}>:TINYEXIF_IMPORT>)
+endif()
 
-install(EXPORT ${CMAKE_PROJECT_NAME}Targets
-		DESTINATION lib/cmake/${CMAKE_PROJECT_NAME})
