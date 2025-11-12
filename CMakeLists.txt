@@ -28,11 +28,6 @@ option(BUILD_SHARED_LIBS "build as shared library" ON)
 option(LINK_CRT_STATIC_LIBS "link CRT static library" OFF)
 option(BUILD_DEMO "build demo binary" ON)
 
-if(LINK_CRT_STATIC_LIBS)
-	# set MSVC runtime linkage to static
-	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
-endif()
-
 add_library(TinyEXIF TinyEXIF.cpp TinyEXIF.h)
 add_library(TinyEXIF::TinyEXIF ALIAS TinyEXIF)
 
@@ -45,6 +40,10 @@ set_target_properties(TinyEXIF PROPERTIES
 	DEFINE_SYMBOL "TINYEXIF_EXPORT"
 	VERSION "${TinyEXIF_VERSION}"
 	SOVERSION "${GENERIC_LIB_SOVERSION}"
+	# set MSVC runtime linkage to static of LINK_CRT_STATIC_LIBS is TRUE
+	# LINK_CRT_STATIC_LIBS -> /MT or /MTd with Debug
+	# NOT LINK_CRT_STATIC_LIBS -> /MD or /MDd with Debug
+	MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<NOT:$<BOOL:${LINK_CRT_STATIC_LIBS}>>:DLL>"
 )
 
 target_include_directories(TinyEXIF PUBLIC
@@ -53,7 +52,9 @@ target_include_directories(TinyEXIF PUBLIC
 )
 
 target_compile_definitions(TinyEXIF
-	PRIVATE $<$<CXX_COMPILER_ID:MSVC>:_CRT_SECURE_NO_WARNINGS>)
+	INTERFACE $<$<BOOL:${BUILD_SHARED_LIBS}>:TINYEXIF_IMPORT>
+	PRIVATE $<$<CXX_COMPILER_ID:MSVC>:_CRT_SECURE_NO_WARNINGS>
+)
 
 install(TARGETS TinyEXIF
 	EXPORT TinyEXIFTargets
@@ -79,6 +80,5 @@ configure_package_config_file(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Config.cmake.in
 if(BUILD_DEMO)
 	add_executable(TinyEXIFdemo main.cpp)
 	target_link_libraries(TinyEXIFdemo TinyEXIF)
-	target_compile_definitions(TinyEXIFdemo PRIVATE $<$<BOOL:${BUILD_SHARED_LIBS}>:TINYEXIF_IMPORT>)
 endif()
 
