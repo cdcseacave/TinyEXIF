@@ -2,7 +2,6 @@ cmake_minimum_required(VERSION 3.15)
 
 ################################
 # set lib version here
-
 project(TinyEXIF VERSION 1.0.3)
 set(GENERIC_LIB_SOVERSION "1")
 
@@ -13,7 +12,6 @@ find_package(tinyxml2 CONFIG REQUIRED)
 
 ################################
 # Add definitions
-
 set(CMAKE_CXX_STANDARD 11)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
@@ -23,7 +21,6 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
 # By Default shared libray is being built
 # User can choose to build static library by using cmake -DBUILD_SHARED_LIBS:BOOL=OFF
 # To build the demo binary, use cmake . -DBUILD_DEMO:BOOL=ON
-
 option(BUILD_SHARED_LIBS "build as shared library" ON)
 option(LINK_CRT_STATIC_LIBS "link CRT static library" OFF)
 option(BUILD_DEMO "build demo binary" ON)
@@ -40,7 +37,7 @@ set_target_properties(TinyEXIF PROPERTIES
 	DEFINE_SYMBOL "TINYEXIF_EXPORT"
 	VERSION "${TinyEXIF_VERSION}"
 	SOVERSION "${GENERIC_LIB_SOVERSION}"
-	# set MSVC runtime linkage to static of LINK_CRT_STATIC_LIBS is TRUE
+	# set MSVC runtime linkage to static if LINK_CRT_STATIC_LIBS is TRUE
 	# LINK_CRT_STATIC_LIBS -> /MT or /MTd with Debug
 	# NOT LINK_CRT_STATIC_LIBS -> /MD or /MDd with Debug
 	MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<NOT:$<BOOL:${LINK_CRT_STATIC_LIBS}>>:DLL>"
@@ -56,6 +53,13 @@ target_compile_definitions(TinyEXIF
 	PRIVATE $<$<CXX_COMPILER_ID:MSVC>:_CRT_SECURE_NO_WARNINGS>
 )
 
+if(BUILD_DEMO)
+	add_executable(TinyEXIFdemo main.cpp)
+	target_link_libraries(TinyEXIFdemo TinyEXIF)
+endif()
+
+################################
+# Install targets
 install(TARGETS TinyEXIF
 	EXPORT TinyEXIFTargets
 	RUNTIME	DESTINATION ${CMAKE_INSTALL_BINDIR}
@@ -76,9 +80,3 @@ configure_package_config_file(${CMAKE_CURRENT_SOURCE_DIR}/cmake/Config.cmake.in
 	"${CMAKE_CURRENT_BINARY_DIR}/TinyEXIFConfig.cmake"
 	INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/TinyEXIF
 )
-
-if(BUILD_DEMO)
-	add_executable(TinyEXIFdemo main.cpp)
-	target_link_libraries(TinyEXIFdemo TinyEXIF)
-endif()
-
