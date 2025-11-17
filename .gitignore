@@ -38,3 +38,4 @@ CMakeSettings.json
 .vscode/
 bin/
 binaries/
+make/

@@ -945,15 +945,17 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	// entries in the section. The last 4 bytes of the IFD contain an offset
 	// to the next IFD, which means this IFD must contain exactly 6 + 12 * num
 	// bytes of data.
+	// Note that it's possible that the next IFD offset doesn't exist,
+	// so here the last 4 bytes are considered optional.
 	if (offs + 2 > len)
 		return PARSE_CORRUPT_DATA;
-	int num_entries = EntryParser::parse16(buf + offs, alignIntel);
-	if (offs + 6 + 12 * num_entries > len)
+	unsigned num_entries = EntryParser::parse16(buf + offs, alignIntel);
+	if (offs + 2 + 12 * num_entries > len)
 		return PARSE_CORRUPT_DATA;
 	unsigned exif_sub_ifd_offset = len;
 	unsigned gps_sub_ifd_offset  = len;
 	parser.Init(offs+2);
-	while (--num_entries >= 0) {
+	while (num_entries-- > 0) {
 		parser.ParseTag();
 		parseIFDImage(parser, exif_sub_ifd_offset, gps_sub_ifd_offset);
 	}
@@ -965,10 +967,10 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	if (exif_sub_ifd_offset + 4 <= len) {
 		offs = exif_sub_ifd_offset;
 		num_entries = EntryParser::parse16(buf + offs, alignIntel);
-		if (offs + 6 + 12 * num_entries > len)
+		if (offs + 2 + 12 * num_entries > len)
 			return PARSE_CORRUPT_DATA;
 		parser.Init(offs+2);
-		while (--num_entries >= 0) {
+		while (num_entries-- > 0) {
 			parser.ParseTag();
 			parseIFDExif(parser);
 		}
@@ -979,10 +981,10 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	if (gps_sub_ifd_offset + 4 <= len) {
 		offs = gps_sub_ifd_offset;
 		num_entries = EntryParser::parse16(buf + offs, alignIntel);
-		if (offs + 6 + 12 * num_entries > len)
+		if (offs + 2 + 12 * num_entries > len)
 			return PARSE_CORRUPT_DATA;
 		parser.Init(offs+2);
-		while (--num_entries >= 0) {
+		while (num_entries-- > 0) {
 			parser.ParseTag();
 			parseIFDGPS(parser);
 		}
