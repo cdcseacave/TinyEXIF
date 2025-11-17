@@ -5,6 +5,8 @@ on:
 
 jobs:
   build:
+    env:
+      VCPKG_COMMIT: '74e6536215718009aae747d86d84b78376bf9e09'
     name: "${{ matrix.os }} - BUILD_SHARED_LIBS=${{ matrix.shared_lib }}"
     strategy:
       fail-fast: false
@@ -21,6 +23,8 @@ jobs:
       - uses: actions/checkout@v4
       - uses: lukka/get-cmake@v3.28.4
       - uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
       - name: Build with -DBUILD_SHARED_LIBS=${{ matrix.shared_lib }}
         uses: lukka/run-cmake@v10
         with:

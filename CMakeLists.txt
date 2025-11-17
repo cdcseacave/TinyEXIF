@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.15)
 
 ################################
 # set lib version here
-project(TinyEXIF VERSION 1.0.3)
+project(TinyEXIF VERSION 1.0.4)
 set(GENERIC_LIB_SOVERSION "1")
 
 include(GNUInstallDirs)
@@ -25,22 +25,24 @@ option(BUILD_SHARED_LIBS "build as shared library" ON)
 option(LINK_CRT_STATIC_LIBS "link CRT static library" OFF)
 option(BUILD_DEMO "build demo binary" ON)
 
+# Set MSVC runtime library globally so all targets use consistent /MT or /MD.
+# This avoids LNK2038 mismatches between targets compiled with different CRT variants.
+if(MSVC)
+	set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<NOT:$<BOOL:${LINK_CRT_STATIC_LIBS}>>:DLL>")
+	if(MSVC_VERSION GREATER 1300)
+		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4251") # needs to have dll-interface
+	endif()
+endif()
+
 add_library(TinyEXIF TinyEXIF.cpp TinyEXIF.h)
 add_library(TinyEXIF::TinyEXIF ALIAS TinyEXIF)
-
-if(MSVC_VERSION GREATER 1300)
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /wd4251") # needs to have dll-interface
-endif()
 
 target_link_libraries(TinyEXIF tinyxml2::tinyxml2)
 set_target_properties(TinyEXIF PROPERTIES
 	DEFINE_SYMBOL "TINYEXIF_EXPORT"
 	VERSION "${TinyEXIF_VERSION}"
 	SOVERSION "${GENERIC_LIB_SOVERSION}"
-	# set MSVC runtime linkage to static if LINK_CRT_STATIC_LIBS is TRUE
-	# LINK_CRT_STATIC_LIBS -> /MT or /MTd with Debug
-	# NOT LINK_CRT_STATIC_LIBS -> /MD or /MDd with Debug
-	MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>$<$<NOT:$<BOOL:${LINK_CRT_STATIC_LIBS}>>:DLL>"
+	MSVC_RUNTIME_LIBRARY "${CMAKE_MSVC_RUNTIME_LIBRARY}"
 )
 
 target_include_directories(TinyEXIF PUBLIC
@@ -55,6 +57,7 @@ target_compile_definitions(TinyEXIF
 
 if(BUILD_DEMO)
 	add_executable(TinyEXIFdemo main.cpp)
+	set_target_properties(TinyEXIFdemo PROPERTIES MSVC_RUNTIME_LIBRARY "${CMAKE_MSVC_RUNTIME_LIBRARY}")
 	target_link_libraries(TinyEXIFdemo TinyEXIF)
 endif()
 
