@@ -1,0 +1,34 @@
+name: build
+on:
+  - push
+  - pull_request
+
+jobs:
+  build:
+    name: "${{ matrix.os }} - BUILD_SHARED_LIBS=${{ matrix.shared_lib }}"
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - macos-latest
+          - ubuntu-latest
+          - windows-latest
+        shared_lib:
+          - ON
+          - OFF
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lukka/get-cmake@v3.28.4
+      - uses: lukka/run-vcpkg@v11
+      - name: Build with -DBUILD_SHARED_LIBS=${{ matrix.shared_lib }}
+        uses: lukka/run-cmake@v10
+        with:
+          configurePreset: "vcpkg"
+          configurePresetAdditionalArgs: "[
+            '-DBUILD_SHARED_LIBS=${{ matrix.shared_lib }}',
+            '-DBUILD_DEMO=ON'
+          ]"
+          buildPreset: "vcpkg"
+          buildPresetAdditionalArgs: "[ '--config Release' ]"
+
