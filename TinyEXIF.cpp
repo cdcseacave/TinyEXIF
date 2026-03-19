@@ -9,7 +9,7 @@
 
 #include "TinyEXIF.h"
 #include <cstddef>
-#include <cstdio
+#include <cstdio>
 #include <cmath>
 #include <cfloat>
 #include <vector>
@@ -226,10 +226,7 @@ public:
 	bool Fetch(double& val) const {
 		if (!IsRational() || length == 0)
 			return false;
-		const uint32_t offset = GetSubIFD();
-		if (offset + 8 > len)
-			return false;
-		val = parseRational(buf + offset, alignIntel, IsSRational());
+		val = parseRational(buf + GetSubIFD(), alignIntel, IsSRational());
 		return true;
 	}
 	bool Fetch(double& val, uint32_t idx) const {
