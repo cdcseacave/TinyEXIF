@@ -301,7 +301,7 @@ public:
 			if (value[num_components-1] == '\0')
 				value.resize(num_components-1);
 		} else
-		if (base+data+num_components <= len) {
+		if ((size_t)base+data+num_components <= len) {
 			const char* const sz((const char*)buf+base+data);
 			unsigned num(0);
 			while (num < num_components && sz[num] != '\0')
