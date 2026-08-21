@@ -1,0 +1,45 @@
+exit_code: 0
+ImageResolution 1368x912 pixels
+CameraModel senseFly - S.O.D.A.
+SerialNumber SI002001AA6L00195
+Orientation 1
+Resolution 72x72 (2)
+Software 1.2.0
+DateTimeOriginal 2017:09:20 21:58:29
+SubSecTimeOriginal 00
+ExposureTime 0.001 s
+FNumber 2.8
+ExposureProgram 4
+ISOSpeed 160
+ShutterSpeedValue 0
+ApertureValue 2.828427125
+BrightnessValue 0
+ExposureBiasValue 0
+SubjectDistance 4294967.295
+FocalLength 10.2 mm
+Flash 0
+MeteringMode 0
+LightSource 0
+ProjectionType 0
+LensInfo.FStopMin 0
+LensInfo.FStopMax 0
+LensInfo.FocalLengthMin 0 mm
+LensInfo.FocalLengthMax 0 mm
+LensInfo.DigitalZoomRatio 0
+LensInfo.FocalLengthIn35mm 28
+LensInfo.FocalPlaneXResolution 4167
+LensInfo.FocalPlaneYResolution 4167
+LensInfo.FocalPlaneResolutionUnit 3
+GeoLocation.Latitude 30.4917275
+GeoLocation.Longitude -96.84851619
+GeoLocation.Altitude 235.464 m
+GeoLocation.AltitudeRef 0
+GeoLocation.RollDegree 10.2135
+GeoLocation.PitchDegree -87.74366
+GeoLocation.YawDegree 19.5534
+GeoLocation.GPSAccuracy XY 0.0214224 m Z 0.0406418 m
+GeoLocation.GPSDOP 0
+GeoLocation.GPSDifferential 0
+GeoLocation.GPSMapDatum WGS-84
+GeoLocation.GPSTimeStamp 21 58 29.905
+GeoLocation.GPSDateStamp 2017:09:20

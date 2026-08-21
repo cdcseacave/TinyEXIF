@@ -1,0 +1,43 @@
+exit_code: 0
+ImageResolution 1024x830 pixels
+Description { "product_id": "090C", "uuid": "13CF237D47BDBD04DE99C132DC6CE38D", "run_date": "2016-11-04T110629+0100", "filename": "Bebop_2_2016-11-04T111408+0100_13CF23.jpg", "media_date": "2016-11-04T111408+0100" }
+CameraModel PARROT - Bebop 2
+Orientation 1
+Resolution 600x600 (2)
+Software DxO OpticsPro 11.2.0
+DateTime 2016:11:04 11:14:08
+DateTimeOriginal 2016:11:04 11:14:08
+DateTimeDigitized 2016:11:04 11:14:08
+ExposureTime 0.001511269715 s
+FNumber 2.299999917
+ExposureProgram 6
+ISOSpeed 150
+ShutterSpeedValue 0.001511269806
+ApertureValue 2.29999991
+BrightnessValue 0
+ExposureBiasValue 0
+SubjectDistance 0
+FocalLength 1.830000118 mm
+Flash 0
+MeteringMode 255
+LightSource 1
+ProjectionType 0
+LensInfo.FStopMin 0
+LensInfo.FStopMax 0
+LensInfo.FocalLengthMin 0 mm
+LensInfo.FocalLengthMax 0 mm
+LensInfo.DigitalZoomRatio 0
+LensInfo.FocalLengthIn35mm 6
+LensInfo.FocalPlaneXResolution 0
+LensInfo.FocalPlaneYResolution 0
+LensInfo.FocalPlaneResolutionUnit 0
+GeoLocation.Latitude 47.20538507
+GeoLocation.Longitude -1.56652401
+GeoLocation.Altitude 31.59999966 m
+GeoLocation.AltitudeRef 0
+GeoLocation.RelativeAltitude 24.955 m
+GeoLocation.RollDegree -4.362211227
+GeoLocation.PitchDegree -89.37338096
+GeoLocation.YawDegree 49.04966354
+GeoLocation.GPSDOP 0
+GeoLocation.GPSDifferential 0

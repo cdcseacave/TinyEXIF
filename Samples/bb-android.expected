@@ -1,0 +1,41 @@
+exit_code: 0
+ImageResolution 3672x4896 pixels
+CameraModel QCOM-AA - QCAM-AA
+Orientation 1
+Resolution 72x72 (2)
+Software IMX230-S-21
+DateTime 2016:02:16 14:01:15
+DateTimeOriginal 2016:02:16 14:01:15
+DateTimeDigitized 2016:02:16 14:01:15
+SubSecTimeOriginal 728730
+ExposureTime 0.001745200698 s
+FNumber 2.2
+ExposureProgram 0
+ISOSpeed 50
+ShutterSpeedValue 0.001746884574
+ApertureValue 2.196185628
+BrightnessValue 3
+ExposureBiasValue 0
+SubjectDistance 0
+FocalLength 4.75 mm
+Flash 16
+MeteringMode 2
+LightSource 0
+ProjectionType 0
+LensInfo.FStopMin 0
+LensInfo.FStopMax 0
+LensInfo.FocalLengthMin 0 mm
+LensInfo.FocalLengthMax 0 mm
+LensInfo.DigitalZoomRatio 0
+LensInfo.FocalLengthIn35mm 27
+LensInfo.FocalPlaneXResolution 0
+LensInfo.FocalPlaneYResolution 0
+LensInfo.FocalPlaneResolutionUnit 0
+GeoLocation.Latitude 49.21421389
+GeoLocation.Longitude 11.46104167
+GeoLocation.Altitude 491 m
+GeoLocation.AltitudeRef 0
+GeoLocation.GPSDOP 0
+GeoLocation.GPSDifferential 0
+GeoLocation.GPSTimeStamp 13 1 14
+GeoLocation.GPSDateStamp 2016:02:16
