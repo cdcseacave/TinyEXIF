@@ -25,6 +25,12 @@ import sys
 SAMPLE_EXT = '.jpg'
 BASELINE_EXT = '.expected'
 
+# A legitimate sample parses in ~10ms on this machine; 30s gives a huge margin for a slow or
+# ASAN-instrumented CI runner while still bounding how long a single hostile/hanging sample
+# (e.g. a future fuzzer find that loops instead of crashing) can stall the whole run.
+DEMO_TIMEOUT_SECONDS = 30
+TIMEOUT_MARKER = 'TIMEOUT'
+
 
 def find_binary(binary_arg):
 	path = binary_arg or os.environ.get('TINYEXIF_DEMO')
@@ -44,7 +50,8 @@ def find_samples(samples_dir):
 	Paths are built from `root` (not the top-level samples_dir), so samples in
 	subdirectories resolve correctly.
 	"""
-	for root, _dirs, filenames in os.walk(samples_dir):
+	for root, dirs, filenames in os.walk(samples_dir):
+		dirs.sort()  # deterministic traversal order once there is more than one subdirectory
 		for f in sorted(filenames):
 			base, extension = os.path.splitext(f)
 			if extension.lower() != SAMPLE_EXT:
@@ -54,13 +61,23 @@ def find_samples(samples_dir):
 			yield fullpath, baseline_path
 
 
-def run_demo(binary, sample_path):
-	"""Run the demo synchronously and return (exit_code, combined stdout+stderr text)."""
-	proc = subprocess.run(
-		[binary, sample_path],
-		stdout=subprocess.PIPE,
-		stderr=subprocess.STDOUT,
-	)
+def run_demo(binary, sample_path, timeout=DEMO_TIMEOUT_SECONDS):
+	"""Run the demo synchronously and return (exit_code, combined stdout+stderr text).
+
+	exit_code is the process's real exit code, or TIMEOUT_MARKER if the demo did not finish
+	within `timeout` seconds. A hang (e.g. a hostile sample that loops instead of crashing)
+	is treated as a hard mismatch, never as an indefinite stall.
+	"""
+	try:
+		proc = subprocess.run(
+			[binary, sample_path],
+			stdout=subprocess.PIPE,
+			stderr=subprocess.STDOUT,
+			timeout=timeout,
+		)
+	except subprocess.TimeoutExpired as exc:
+		# On POSIX, subprocess.run does not recover partial output after a timeout kill.
+		return TIMEOUT_MARKER, (exc.output or b'').decode('utf-8', errors='replace')
 	return proc.returncode, proc.stdout.decode('utf-8', errors='replace')
 
 
@@ -106,11 +123,22 @@ def main(argv):
 	exiftool = shutil.which('exiftool')
 
 	if args.update:
+		timed_out = []
 		for sample_path, baseline_path in samples:
 			exit_code, output = run_demo(binary, sample_path)
+			if exit_code == TIMEOUT_MARKER:
+				# Never bake a hang into a baseline -- that would turn a real bug into
+				# permanently "expected" behaviour instead of surfacing it.
+				print("TIMEOUT: {} did not finish within {}s; not writing a baseline for it".format(
+					sample_path, DEMO_TIMEOUT_SECONDS))
+				timed_out.append(sample_path)
+				continue
 			with open(baseline_path, 'w') as fh:
 				fh.write(render_baseline(exit_code, output))
 			print("updated " + baseline_path)
+		if timed_out:
+			print("update aborted: {} sample(s) timed out, see above".format(len(timed_out)))
+			return 1
 		print("updated {} baseline(s)".format(len(samples)))
 		return 0
 
@@ -129,7 +157,10 @@ def main(argv):
 
 		if actual != expected:
 			mismatches += 1
-			print("MISMATCH: " + sample_path)
+			if exit_code == TIMEOUT_MARKER:
+				print("TIMEOUT: {} did not finish within {}s".format(sample_path, DEMO_TIMEOUT_SECONDS))
+			else:
+				print("MISMATCH: " + sample_path)
 			diff = difflib.unified_diff(
 				expected.splitlines(keepends=True),
 				actual.splitlines(keepends=True),
