@@ -9,6 +9,14 @@
 #include <vector>   // std::vector
 #include <iomanip>  // std::setprecision
 
+// Compile-time check that TINYEXIF_VERSION works as documented in TinyEXIF.h:
+// fail the build with a clear message rather than a confusing downstream
+// error if this demo is ever paired with a pre-1.1.0 header.
+#if TINYEXIF_VERSION < 10100
+#error "This demo requires TinyEXIF.h 1.1.0 or later"
+#endif
+static_assert(sizeof(TINYEXIF_VERSION_STRING) > 1, "TINYEXIF_VERSION_STRING must be a non-empty string literal");
+
 int main(int argc, const char** argv)
 {
 	if (argc != 2) {

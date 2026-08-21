@@ -1,8 +1,55 @@
 cmake_minimum_required(VERSION 3.15)
 
 ################################
-# set lib version here
-project(TinyEXIF VERSION 1.0.4)
+# Determine the library version from TinyEXIF.h (the single source of
+# truth -- see the comment above TINYEXIF_MAJOR_VERSION in that file).
+# TinyEXIF.h must stay self-contained since it is vendored directly by
+# some consumers, so the version lives there and is read back out here
+# rather than the header including a CMake-generated file.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/TinyEXIF.h" _tinyexif_h_content)
+
+string(REGEX MATCH "#define[ \t]+TINYEXIF_MAJOR_VERSION[ \t]+([0-9]+)" _tinyexif_major_match "${_tinyexif_h_content}")
+if(NOT _tinyexif_major_match)
+	message(FATAL_ERROR "TinyEXIF.h: could not find '#define TINYEXIF_MAJOR_VERSION <n>'")
+endif()
+set(_tinyexif_major "${CMAKE_MATCH_1}")
+
+string(REGEX MATCH "#define[ \t]+TINYEXIF_MINOR_VERSION[ \t]+([0-9]+)" _tinyexif_minor_match "${_tinyexif_h_content}")
+if(NOT _tinyexif_minor_match)
+	message(FATAL_ERROR "TinyEXIF.h: could not find '#define TINYEXIF_MINOR_VERSION <n>'")
+endif()
+set(_tinyexif_minor "${CMAKE_MATCH_1}")
+
+string(REGEX MATCH "#define[ \t]+TINYEXIF_PATCH_VERSION[ \t]+([0-9]+)" _tinyexif_patch_match "${_tinyexif_h_content}")
+if(NOT _tinyexif_patch_match)
+	message(FATAL_ERROR "TinyEXIF.h: could not find '#define TINYEXIF_PATCH_VERSION <n>'")
+endif()
+set(_tinyexif_patch "${CMAKE_MATCH_1}")
+
+set(TinyEXIF_VERSION "${_tinyexif_major}.${_tinyexif_minor}.${_tinyexif_patch}")
+
+# vcpkg.json must stay a static file (vcpkg reads it directly from the
+# repo, not through CMake), so cross-check it against TinyEXIF.h instead
+# of generating it.
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/vcpkg.json" _tinyexif_vcpkg_json_content)
+string(REGEX MATCH "\"version-string\"[ \t]*:[ \t]*\"([0-9]+\\.[0-9]+\\.[0-9]+)\"" _tinyexif_vcpkg_match "${_tinyexif_vcpkg_json_content}")
+if(NOT _tinyexif_vcpkg_match)
+	message(FATAL_ERROR "vcpkg.json: could not find '\"version-string\": \"<major.minor.patch>\"'")
+endif()
+set(_tinyexif_vcpkg_version "${CMAKE_MATCH_1}")
+
+if(NOT _tinyexif_vcpkg_version STREQUAL TinyEXIF_VERSION)
+	message(FATAL_ERROR
+		"Version mismatch: TinyEXIF.h declares version ${TinyEXIF_VERSION} "
+		"but vcpkg.json declares \"version-string\": \"${_tinyexif_vcpkg_version}\". "
+		"Update vcpkg.json's version-string to match TinyEXIF.h.")
+endif()
+
+message(STATUS "TinyEXIF version (from TinyEXIF.h): ${TinyEXIF_VERSION}")
+
+################################
+# lib version is set in TinyEXIF.h; see above
+project(TinyEXIF VERSION ${TinyEXIF_VERSION})
 set(GENERIC_LIB_SOVERSION "1")
 
 include(GNUInstallDirs)

@@ -15,8 +15,28 @@
 #include <vector>
 
 #define TINYEXIF_MAJOR_VERSION 1
-#define TINYEXIF_MINOR_VERSION 0
-#define TINYEXIF_PATCH_VERSION 3
+#define TINYEXIF_MINOR_VERSION 1
+#define TINYEXIF_PATCH_VERSION 0
+
+// TINYEXIF_VERSION_STRING and TINYEXIF_VERSION are derived from the three
+// macros above -- change only MAJOR/MINOR/PATCH above, never these directly.
+// CMakeLists.txt also reads MAJOR/MINOR/PATCH out of this header, so it is
+// the single source of truth for the library version.
+#define TINYEXIF_STRINGIZE_(x) #x
+#define TINYEXIF_STRINGIZE(x) TINYEXIF_STRINGIZE_(x)
+#define TINYEXIF_VERSION_STRING \
+	TINYEXIF_STRINGIZE(TINYEXIF_MAJOR_VERSION) "." \
+	TINYEXIF_STRINGIZE(TINYEXIF_MINOR_VERSION) "." \
+	TINYEXIF_STRINGIZE(TINYEXIF_PATCH_VERSION)
+
+// Numeric version for #if comparisons (macro values, not strings, are
+// required in preprocessor conditions). Encodes MAJOR/MINOR/PATCH as
+// MAJOR*10000 + MINOR*100 + PATCH, leaving room for two-digit MINOR/PATCH
+// components. Example: gate use of an API added in 1.1.0 like this:
+//   #if TINYEXIF_VERSION >= 10100
+//   // use TinyEXIF::EXIFInfo::HasField(), added in 1.1.0
+//   #endif
+#define TINYEXIF_VERSION (TINYEXIF_MAJOR_VERSION*10000 + TINYEXIF_MINOR_VERSION*100 + TINYEXIF_PATCH_VERSION)
 
 #ifdef _MSC_VER
 #   ifdef TINYEXIF_EXPORT
