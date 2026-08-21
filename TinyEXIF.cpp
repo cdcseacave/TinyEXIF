@@ -1122,7 +1122,10 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		// values too large for uint32_t (a video item longer than 4GiB, for example) saturate
 		// at UINT32_MAX instead of silently wrapping, and text that starts with no digits at
 		// all is reported as absent instead of as a zero; strtoull, not strtoul, is used so
-		// the range check is meaningful where unsigned long is only 32 bits wide
+		// the range check is meaningful where unsigned long is only 32 bits wide.
+		// note UINT32_MAX doubles as the "absent" sentinel of seven fields fed from here -
+		// Distortion.DewarpFlag and the six GPano pixel counts - so for those a saturated
+		// value reads back as absent through their hasXxx(); fail-safe, but not distinguishable
 		static bool Value(const tinyxml2::XMLElement* document, const char* name, uint32_t& value) {
 			const char* szAttribute = document->Attribute(name);
 			if (szAttribute == NULL) {
@@ -1282,8 +1285,13 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		ParseXMP::Value(document, "GCamera:MotionPhoto", MicroVideo.HasMotionPhoto);
 		// the container gives the video item's *length*; it is deliberately not stored in
 		// MicroVideoOffset, which is an offset from the end of the file - a different
-		// quantity as soon as the container lists any item after the video
-		ParseXMP::VideoItem(document, MicroVideo.MotionPhotoMime, MicroVideo.MotionPhotoLength);
+		// quantity as soon as the container lists any item after the video.
+		// it is only walked when the file actually claims a motion photo: one saying
+		// GCamera:MotionPhoto="0" while carrying a container for something else (an Ultra HDR
+		// gain map, say) must not come back with the payload fields filled in, or
+		// HasMotionPhoto would no longer tell "no motion photo" from "length unknown"
+		if (MicroVideo.HasMotionPhoto)
+			ParseXMP::VideoItem(document, MicroVideo.MotionPhotoMime, MicroVideo.MotionPhotoLength);
 	}
 	return PARSE_SUCCESS;
 }
