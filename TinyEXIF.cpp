@@ -352,80 +352,221 @@ EXIFInfo::EXIFInfo(const uint8_t* data, unsigned length) {
 }
 
 
+// Number of 64bit words needed to store one presence bit per FieldID
+static const size_t FIELD_ID_WORDS = ((size_t)FIELD_ID_COUNT + 63) / 64;
+
+// Name of every field, in FieldID order: the path of the member it fills
+static const char* const g_FieldNames[] = {
+	"ImageWidth",
+	"ImageHeight",
+	"RelatedImageWidth",
+	"RelatedImageHeight",
+	"ImageDescription",
+	"Make",
+	"Model",
+	"SerialNumber",
+	"Orientation",
+	"XResolution",
+	"YResolution",
+	"ResolutionUnit",
+	"BitsPerSample",
+	"Software",
+	"DateTime",
+	"DateTimeOriginal",
+	"DateTimeDigitized",
+	"SubSecTimeOriginal",
+	"Copyright",
+	"ExposureTime",
+	"FNumber",
+	"ExposureProgram",
+	"ISOSpeedRatings",
+	"ShutterSpeedValue",
+	"ApertureValue",
+	"BrightnessValue",
+	"ExposureBiasValue",
+	"SubjectDistance",
+	"FocalLength",
+	"Flash",
+	"MeteringMode",
+	"LightSource",
+	"ProjectionType",
+	"SubjectArea",
+	"Calibration.FocalLength",
+	"Calibration.OpticalCenterX",
+	"Calibration.OpticalCenterY",
+	"Distortion.DewarpFlag",
+	"Distortion.K1",
+	"Distortion.K2",
+	"Distortion.P1",
+	"Distortion.P2",
+	"Distortion.K3",
+	"LensInfo.FStopMin",
+	"LensInfo.FStopMax",
+	"LensInfo.FocalLengthMin",
+	"LensInfo.FocalLengthMax",
+	"LensInfo.DigitalZoomRatio",
+	"LensInfo.FocalLengthIn35mm",
+	"LensInfo.FocalPlaneXResolution",
+	"LensInfo.FocalPlaneYResolution",
+	"LensInfo.FocalPlaneResolutionUnit",
+	"LensInfo.Make",
+	"LensInfo.Model",
+	"GeoLocation.Latitude",
+	"GeoLocation.Longitude",
+	"GeoLocation.Altitude",
+	"GeoLocation.AltitudeRef",
+	"GeoLocation.RelativeAltitude",
+	"GeoLocation.RollDegree",
+	"GeoLocation.PitchDegree",
+	"GeoLocation.YawDegree",
+	"GeoLocation.SpeedX",
+	"GeoLocation.SpeedY",
+	"GeoLocation.SpeedZ",
+	"GeoLocation.AccuracyXY",
+	"GeoLocation.AccuracyZ",
+	"GeoLocation.GPSDOP",
+	"GeoLocation.GPSDifferential",
+	"GeoLocation.GPSMapDatum",
+	"GeoLocation.GPSTimeStamp",
+	"GeoLocation.GPSDateStamp",
+	"GeoLocation.LatComponents.direction",
+	"GeoLocation.LonComponents.direction",
+	"GPano.PosePitchDegrees",
+	"GPano.PoseRollDegrees",
+	"GPano.PoseHeadingDegrees",
+	"GPano.ProjectionType",
+	"GPano.CroppedAreaImageWidthPixels",
+	"GPano.CroppedAreaImageHeightPixels",
+	"GPano.FullPanoWidthPixels",
+	"GPano.FullPanoHeightPixels",
+	"GPano.CroppedAreaLeftPixels",
+	"GPano.CroppedAreaTopPixels",
+	"MicroVideo.HasMicroVideo",
+	"MicroVideo.MicroVideoVersion",
+	"MicroVideo.MicroVideoOffset",
+	"MicroVideo.HasMotionPhoto",
+	"MicroVideo.MotionPhotoLength",
+	"MicroVideo.MotionPhotoMime",
+};
+static_assert(sizeof(g_FieldNames)/sizeof(g_FieldNames[0]) == (size_t)FIELD_ID_COUNT,
+	"g_FieldNames must have exactly one entry per FieldID");
+
+const char* FieldName(FieldID id) {
+	const unsigned pos((unsigned)id);
+	return pos < (unsigned)FIELD_ID_COUNT ? g_FieldNames[pos] : "";
+}
+
+bool EXIFInfo::HasField(FieldID id) const {
+	const unsigned pos((unsigned)id);
+	if (pos >= (unsigned)FIELD_ID_COUNT)
+		return false;
+	const size_t word(pos/64);
+	// the bitset is only allocated once something is stored in it, so a parse
+	// that found nothing at all (or no parse at all) leaves it empty
+	return word < FieldsPresent.size() &&
+		(FieldsPresent[word] & ((uint64_t)1 << (pos%64))) != 0;
+}
+
+std::vector<FieldID> EXIFInfo::GetFields() const {
+	std::vector<FieldID> fields;
+	for (unsigned pos=0; pos<(unsigned)FIELD_ID_COUNT; ++pos)
+		if (HasField((FieldID)pos))
+			fields.push_back((FieldID)pos);
+	return fields;
+}
+
+void EXIFInfo::SetField(FieldID id) {
+	const unsigned pos((unsigned)id);
+	if (pos >= (unsigned)FIELD_ID_COUNT)
+		return;
+	// parseFromEXIFSegment()/parseFromXMPSegment() may be called directly, without
+	// the clear() that parseFrom() does, so the storage is allocated on demand
+	if (FieldsPresent.size() < FIELD_ID_WORDS)
+		FieldsPresent.resize(FIELD_ID_WORDS, 0);
+	FieldsPresent[pos/64] |= (uint64_t)1 << (pos%64);
+}
+
+bool EXIFInfo::SetFieldIf(FieldID id, bool fetched) {
+	if (fetched)
+		SetField(id);
+	return fetched;
+}
+
+
 // Parse tag as Image IFD
 void EXIFInfo::parseIFDImage(EntryParser& parser, uint64_t& exif_sub_ifd_offset, uint64_t& gps_sub_ifd_offset) {
 	switch (parser.GetTag()) {
 	case 0x0102:
 		// Bits per sample
-		parser.Fetch(BitsPerSample);
+		SetFieldIf(FIELD_ID_BitsPerSample, parser.Fetch(BitsPerSample));
 		break;
 
 	case 0x010e:
 		// Image description
-		parser.Fetch(ImageDescription);
+		SetFieldIf(FIELD_ID_ImageDescription, parser.Fetch(ImageDescription));
 		break;
 
 	case 0x010f:
 		// Camera maker
-		parser.Fetch(Make);
+		SetFieldIf(FIELD_ID_Make, parser.Fetch(Make));
 		break;
 
 	case 0x0110:
 		// Camera model
-		parser.Fetch(Model);
+		SetFieldIf(FIELD_ID_Model, parser.Fetch(Model));
 		break;
 
 	case 0x0112:
 		// Orientation of image
-		parser.Fetch(Orientation);
+		SetFieldIf(FIELD_ID_Orientation, parser.Fetch(Orientation));
 		break;
 
 	case 0x011a:
 		// XResolution 
-		parser.Fetch(XResolution);
+		SetFieldIf(FIELD_ID_XResolution, parser.Fetch(XResolution));
 		break;
 
 	case 0x011b:
 		// YResolution 
-		parser.Fetch(YResolution);
+		SetFieldIf(FIELD_ID_YResolution, parser.Fetch(YResolution));
 		break;
 
 	case 0x0128:
 		// Resolution Unit
-		parser.Fetch(ResolutionUnit);
+		SetFieldIf(FIELD_ID_ResolutionUnit, parser.Fetch(ResolutionUnit));
 		break;
 
 	case 0x0131:
 		// Software used for image
-		parser.Fetch(Software);
+		SetFieldIf(FIELD_ID_Software, parser.Fetch(Software));
 		break;
 
 	case 0x0132:
 		// EXIF/TIFF date/time of image modification
-		parser.Fetch(DateTime);
+		SetFieldIf(FIELD_ID_DateTime, parser.Fetch(DateTime));
 		break;
 
 	case 0x1001:
 		// Original Image width
-		if (!parser.Fetch(RelatedImageWidth)) {
+		if (!SetFieldIf(FIELD_ID_RelatedImageWidth, parser.Fetch(RelatedImageWidth))) {
 			uint16_t _RelatedImageWidth;
-			if (parser.Fetch(_RelatedImageWidth))
+			if (SetFieldIf(FIELD_ID_RelatedImageWidth, parser.Fetch(_RelatedImageWidth)))
 				RelatedImageWidth = _RelatedImageWidth;
 		}
 		break;
 
 	case 0x1002:
 		// Original Image height
-		if (!parser.Fetch(RelatedImageHeight)) {
+		if (!SetFieldIf(FIELD_ID_RelatedImageHeight, parser.Fetch(RelatedImageHeight))) {
 			uint16_t _RelatedImageHeight;
-			if (parser.Fetch(_RelatedImageHeight))
+			if (SetFieldIf(FIELD_ID_RelatedImageHeight, parser.Fetch(_RelatedImageHeight)))
 				RelatedImageHeight = _RelatedImageHeight;
 		}
 		break;
 
 	case 0x8298:
 		// Copyright information
-		parser.Fetch(Copyright);
+		SetFieldIf(FIELD_ID_Copyright, parser.Fetch(Copyright));
 		break;
 
 	case 0x8769:
@@ -460,79 +601,79 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 
 	case 0x829a:
 		// Exposure time in seconds
-		parser.Fetch(ExposureTime);
+		SetFieldIf(FIELD_ID_ExposureTime, parser.Fetch(ExposureTime));
 		break;
 
 	case 0x829d:
 		// FNumber
-		parser.Fetch(FNumber);
+		SetFieldIf(FIELD_ID_FNumber, parser.Fetch(FNumber));
 		break;
 
 	case 0x8822:
 		// Exposure Program
-		parser.Fetch(ExposureProgram);
+		SetFieldIf(FIELD_ID_ExposureProgram, parser.Fetch(ExposureProgram));
 		break;
 
 	case 0x8827:
 		// ISO Speed Rating
-		parser.Fetch(ISOSpeedRatings);
+		SetFieldIf(FIELD_ID_ISOSpeedRatings, parser.Fetch(ISOSpeedRatings));
 		break;
 
 	case 0x9003:
 		// Original date and time
-		parser.Fetch(DateTimeOriginal);
+		SetFieldIf(FIELD_ID_DateTimeOriginal, parser.Fetch(DateTimeOriginal));
 		break;
 
 	case 0x9004:
 		// Digitization date and time
-		parser.Fetch(DateTimeDigitized);
+		SetFieldIf(FIELD_ID_DateTimeDigitized, parser.Fetch(DateTimeDigitized));
 		break;
 
 	case 0x9201:
 		// Shutter speed value
-		parser.Fetch(ShutterSpeedValue);
+		SetFieldIf(FIELD_ID_ShutterSpeedValue, parser.Fetch(ShutterSpeedValue));
 		ShutterSpeedValue = 1.0/exp(ShutterSpeedValue*log(2));
 		break;
 
 	case 0x9202:
 		// Aperture value
-		parser.Fetch(ApertureValue);
+		SetFieldIf(FIELD_ID_ApertureValue, parser.Fetch(ApertureValue));
 		ApertureValue = exp(ApertureValue*log(2)*0.5);
 		break;
 
 	case 0x9203:
 		// Brightness value
-		parser.Fetch(BrightnessValue);
+		SetFieldIf(FIELD_ID_BrightnessValue, parser.Fetch(BrightnessValue));
 		break;
 
 	case 0x9204:
 		// Exposure bias value 
-		parser.Fetch(ExposureBiasValue);
+		SetFieldIf(FIELD_ID_ExposureBiasValue, parser.Fetch(ExposureBiasValue));
 		break;
 
 	case 0x9206:
 		// Subject distance
-		parser.Fetch(SubjectDistance);
+		SetFieldIf(FIELD_ID_SubjectDistance, parser.Fetch(SubjectDistance));
 		break;
 
 	case 0x9207:
 		// Metering mode
-		parser.Fetch(MeteringMode);
+		SetFieldIf(FIELD_ID_MeteringMode, parser.Fetch(MeteringMode));
 		break;
 
 	case 0x9208:
 		// Light source
-		parser.Fetch(LightSource);
+		SetFieldIf(FIELD_ID_LightSource, parser.Fetch(LightSource));
 		break;
 
 	case 0x9209:
 		// Flash info
-		parser.Fetch(Flash);
+		SetFieldIf(FIELD_ID_Flash, parser.Fetch(Flash));
 		break;
 
 	case 0x920a:
 		// Focal length
-		parser.Fetch(FocalLength);
+		SetFieldIf(FIELD_ID_FocalLength, parser.Fetch(FocalLength));
 		break;
 
 	case 0x9214:
@@ -540,7 +681,7 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 		if (parser.IsShort() && parser.GetLength() > 1) {
 			SubjectArea.resize(parser.GetLength());
 			for (uint32_t i=0; i<parser.GetLength(); ++i)
-				parser.Fetch(SubjectArea[i], i);
+				SetFieldIf(FIELD_ID_SubjectArea, parser.Fetch(SubjectArea[i], i));
 		}
 		break;
 
@@ -551,86 +692,86 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 
 	case 0x9291:
 		// Fractions of seconds for DateTimeOriginal
-		parser.Fetch(SubSecTimeOriginal);
+		SetFieldIf(FIELD_ID_SubSecTimeOriginal, parser.Fetch(SubSecTimeOriginal));
 		break;
 
 	case 0xa002:
 		// EXIF Image width
-		if (!parser.Fetch(ImageWidth)) {
+		if (!SetFieldIf(FIELD_ID_ImageWidth, parser.Fetch(ImageWidth))) {
 			uint16_t _ImageWidth;
-			if (parser.Fetch(_ImageWidth))
+			if (SetFieldIf(FIELD_ID_ImageWidth, parser.Fetch(_ImageWidth)))
 				ImageWidth = _ImageWidth;
 		}
 		break;
 
 	case 0xa003:
 		// EXIF Image height
-		if (!parser.Fetch(ImageHeight)) {
+		if (!SetFieldIf(FIELD_ID_ImageHeight, parser.Fetch(ImageHeight))) {
 			uint16_t _ImageHeight;
-			if (parser.Fetch(_ImageHeight))
+			if (SetFieldIf(FIELD_ID_ImageHeight, parser.Fetch(_ImageHeight)))
 				ImageHeight = _ImageHeight;
 		}
 		break;
 
 	case 0xa20e:
 		// Focal plane X resolution
-		parser.Fetch(LensInfo.FocalPlaneXResolution);
+		SetFieldIf(FIELD_ID_LensInfo_FocalPlaneXResolution, parser.Fetch(LensInfo.FocalPlaneXResolution));
 		break;
 
 	case 0xa20f:
 		// Focal plane Y resolution
-		parser.Fetch(LensInfo.FocalPlaneYResolution);
+		SetFieldIf(FIELD_ID_LensInfo_FocalPlaneYResolution, parser.Fetch(LensInfo.FocalPlaneYResolution));
 		break;
 
 	case 0xa210:
 		// Focal plane resolution unit
-		parser.Fetch(LensInfo.FocalPlaneResolutionUnit);
+		SetFieldIf(FIELD_ID_LensInfo_FocalPlaneResolutionUnit, parser.Fetch(LensInfo.FocalPlaneResolutionUnit));
 		break;
 
 	case 0xa215:
 		// Exposure Index and ISO Speed Rating are often used interchangeably
 		if (ISOSpeedRatings == 0) {
 			double ExposureIndex;
-			if (parser.Fetch(ExposureIndex))
+			if (SetFieldIf(FIELD_ID_ISOSpeedRatings, parser.Fetch(ExposureIndex)))
 				ISOSpeedRatings = (uint16_t)ExposureIndex;
 		}
 		break;
 
 	case 0xa404:
 		// Digital Zoom Ratio
-		parser.Fetch(LensInfo.DigitalZoomRatio);
+		SetFieldIf(FIELD_ID_LensInfo_DigitalZoomRatio, parser.Fetch(LensInfo.DigitalZoomRatio));
 		break;
 
 	case 0xa405:
 		// Focal length in 35mm film
-		if (!parser.Fetch(LensInfo.FocalLengthIn35mm)) {
+		if (!SetFieldIf(FIELD_ID_LensInfo_FocalLengthIn35mm, parser.Fetch(LensInfo.FocalLengthIn35mm))) {
 			uint16_t _FocalLengthIn35mm;
-			if (parser.Fetch(_FocalLengthIn35mm))
+			if (SetFieldIf(FIELD_ID_LensInfo_FocalLengthIn35mm, parser.Fetch(_FocalLengthIn35mm)))
 				LensInfo.FocalLengthIn35mm = (double)_FocalLengthIn35mm;
 		}
 		break;
 
 	case 0xa431:
 		// Serial number of the camera
-		parser.Fetch(SerialNumber);
+		SetFieldIf(FIELD_ID_SerialNumber, parser.Fetch(SerialNumber));
 		break;
 
 	case 0xa432:
 		// Focal length and FStop.
-		if (parser.Fetch(LensInfo.FocalLengthMin, 0))
-			if (parser.Fetch(LensInfo.FocalLengthMax, 1))
-				if (parser.Fetch(LensInfo.FStopMin, 2))
-					parser.Fetch(LensInfo.FStopMax, 3);
+		if (SetFieldIf(FIELD_ID_LensInfo_FocalLengthMin, parser.Fetch(LensInfo.FocalLengthMin, 0)))
+			if (SetFieldIf(FIELD_ID_LensInfo_FocalLengthMax, parser.Fetch(LensInfo.FocalLengthMax, 1)))
+				if (SetFieldIf(FIELD_ID_LensInfo_FStopMin, parser.Fetch(LensInfo.FStopMin, 2)))
+					SetFieldIf(FIELD_ID_LensInfo_FStopMax, parser.Fetch(LensInfo.FStopMax, 3));
 		break;
 
 	case 0xa433:
 		// Lens make.
-		parser.Fetch(LensInfo.Make);
+		SetFieldIf(FIELD_ID_LensInfo_Make, parser.Fetch(LensInfo.Make));
 		break;
 
 	case 0xa434:
 		// Lens model.
-		parser.Fetch(LensInfo.Model);
+		SetFieldIf(FIELD_ID_LensInfo_Model, parser.Fetch(LensInfo.Model));
 		break;
 	}
 }
@@ -665,32 +806,32 @@ void EXIFInfo::parseIFDMakerNote(EntryParser& parser) {
 				switch (parser.GetTag()) {
 				case 3:
 					// SpeedX
-					parser.FetchFloat(GeoLocation.SpeedX);
+					SetFieldIf(FIELD_ID_GeoLocation_SpeedX, parser.FetchFloat(GeoLocation.SpeedX));
 					break;
 
 				case 4:
 					// SpeedY
-					parser.FetchFloat(GeoLocation.SpeedY);
+					SetFieldIf(FIELD_ID_GeoLocation_SpeedY, parser.FetchFloat(GeoLocation.SpeedY));
 					break;
 
 				case 5:
 					// SpeedZ
-					parser.FetchFloat(GeoLocation.SpeedZ);
+					SetFieldIf(FIELD_ID_GeoLocation_SpeedZ, parser.FetchFloat(GeoLocation.SpeedZ));
 					break;
 
 				case 9:
 					// Camera Pitch
-					parser.FetchFloat(GeoLocation.PitchDegree);
+					SetFieldIf(FIELD_ID_GeoLocation_PitchDegree, parser.FetchFloat(GeoLocation.PitchDegree));
 					break;
 
 				case 10:
 					// Camera Yaw
-					parser.FetchFloat(GeoLocation.YawDegree);
+					SetFieldIf(FIELD_ID_GeoLocation_YawDegree, parser.FetchFloat(GeoLocation.YawDegree));
 					break;
 
 				case 11:
 					// Camera Roll
-					parser.FetchFloat(GeoLocation.RollDegree);
+					SetFieldIf(FIELD_ID_GeoLocation_RollDegree, parser.FetchFloat(GeoLocation.RollDegree));
 					break;
 				}
 			}
@@ -704,42 +845,44 @@ void EXIFInfo::parseIFDGPS(EntryParser& parser) {
 	switch (parser.GetTag()) {
 	case 1:
 		// GPS north or south
-		parser.Fetch(GeoLocation.LatComponents.direction);
+		SetFieldIf(FIELD_ID_GeoLocation_LatComponents_direction, parser.Fetch(GeoLocation.LatComponents.direction));
 		break;
 
 	case 2:
 		// GPS latitude
+		// the components are what parseCoords() turns into GeoLocation.Latitude,
+		// so they mark that field rather than one enumerator each
 		if (parser.IsRational() && parser.GetLength() == 3) {
-			parser.Fetch(GeoLocation.LatComponents.degrees, 0);
-			parser.Fetch(GeoLocation.LatComponents.minutes, 1);
-			parser.Fetch(GeoLocation.LatComponents.seconds, 2);
+			SetFieldIf(FIELD_ID_GeoLocation_Latitude, parser.Fetch(GeoLocation.LatComponents.degrees, 0));
+			SetFieldIf(FIELD_ID_GeoLocation_Latitude, parser.Fetch(GeoLocation.LatComponents.minutes, 1));
+			SetFieldIf(FIELD_ID_GeoLocation_Latitude, parser.Fetch(GeoLocation.LatComponents.seconds, 2));
 		}
 		break;
 
 	case 3:
 		// GPS east or west
-		parser.Fetch(GeoLocation.LonComponents.direction);
+		SetFieldIf(FIELD_ID_GeoLocation_LonComponents_direction, parser.Fetch(GeoLocation.LonComponents.direction));
 		break;
 
 	case 4:
 		// GPS longitude
 		if (parser.IsRational() && parser.GetLength() == 3) {
-			parser.Fetch(GeoLocation.LonComponents.degrees, 0);
-			parser.Fetch(GeoLocation.LonComponents.minutes, 1);
-			parser.Fetch(GeoLocation.LonComponents.seconds, 2);
+			SetFieldIf(FIELD_ID_GeoLocation_Longitude, parser.Fetch(GeoLocation.LonComponents.degrees, 0));
+			SetFieldIf(FIELD_ID_GeoLocation_Longitude, parser.Fetch(GeoLocation.LonComponents.minutes, 1));
+			SetFieldIf(FIELD_ID_GeoLocation_Longitude, parser.Fetch(GeoLocation.LonComponents.seconds, 2));
 		}
 		break;
 
 	case 5:
 		// GPS altitude reference (below or above sea level)
 		uint8_t altitudeRef;
-		if (parser.Fetch(altitudeRef))
+		if (SetFieldIf(FIELD_ID_GeoLocation_AltitudeRef, parser.Fetch(altitudeRef)))
 			GeoLocation.AltitudeRef = (int8_t)altitudeRef;
 		break;
 
 	case 6:
 		// GPS altitude
-		parser.Fetch(GeoLocation.Altitude);
+		SetFieldIf(FIELD_ID_GeoLocation_Altitude, parser.Fetch(GeoLocation.Altitude));
 		break;
 
 	case 7:
@@ -752,27 +895,30 @@ void EXIFInfo::parseIFDGPS(EntryParser& parser) {
 			char buffer[256];
 			snprintf(buffer, 256, "%g %g %g", h, m, s);
 			GeoLocation.GPSTimeStamp = buffer;
+			// the string is composed and stored whatever the three fetches returned,
+			// so the field is marked here, where it is written, and not at them
+			SetField(FIELD_ID_GeoLocation_GPSTimeStamp);
 		}
 		break;
 
 	case 11:
 		// Indicates the GPS DOP (data degree of precision)
-		parser.Fetch(GeoLocation.GPSDOP);
+		SetFieldIf(FIELD_ID_GeoLocation_GPSDOP, parser.Fetch(GeoLocation.GPSDOP));
 		break;
 
 	case 18:
 		// GPS geodetic survey data
-		parser.Fetch(GeoLocation.GPSMapDatum);
+		SetFieldIf(FIELD_ID_GeoLocation_GPSMapDatum, parser.Fetch(GeoLocation.GPSMapDatum));
 		break;
 
 	case 29:
 		// GPS date-stamp
-		parser.Fetch(GeoLocation.GPSDateStamp);
+		SetFieldIf(FIELD_ID_GeoLocation_GPSDateStamp, parser.Fetch(GeoLocation.GPSDateStamp));
 		break;
 
 	case 30:
 		// GPS differential indicates whether differential correction is applied to the GPS receiver
-		parser.Fetch(GeoLocation.GPSDifferential);
+		SetFieldIf(FIELD_ID_GeoLocation_GPSDifferential, parser.Fetch(GeoLocation.GPSDifferential));
 		break;
 	}
 }
@@ -1081,21 +1227,23 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		return PARSE_ABSENT_DATA;
 
 	// Try parsing the XMP content for tiff details.
+	// these fill the same fields as their EXIF counterparts, so either source
+	// finding one counts as present
 	if (Orientation == 0) {
 		uint32_t _Orientation(0);
-		document->QueryUnsignedAttribute("tiff:Orientation", &_Orientation);
+		SetFieldIf(FIELD_ID_Orientation, document->QueryUnsignedAttribute("tiff:Orientation", &_Orientation) == tinyxml2::XML_SUCCESS);
 		Orientation = (uint16_t)_Orientation;
 	}
 	if (ImageWidth == 0 && ImageHeight == 0) {
-		document->QueryUnsignedAttribute("tiff:ImageWidth", &ImageWidth);
-		if (document->QueryUnsignedAttribute("tiff:ImageHeight", &ImageHeight) != tinyxml2::XML_SUCCESS)
-			document->QueryUnsignedAttribute("tiff:ImageLength", &ImageHeight) ;
+		SetFieldIf(FIELD_ID_ImageWidth, document->QueryUnsignedAttribute("tiff:ImageWidth", &ImageWidth) == tinyxml2::XML_SUCCESS);
+		if (!SetFieldIf(FIELD_ID_ImageHeight, document->QueryUnsignedAttribute("tiff:ImageHeight", &ImageHeight) == tinyxml2::XML_SUCCESS))
+			SetFieldIf(FIELD_ID_ImageHeight, document->QueryUnsignedAttribute("tiff:ImageLength", &ImageHeight) == tinyxml2::XML_SUCCESS);
 	}
 	if (XResolution == 0 && YResolution == 0 && ResolutionUnit == 0) {
-		document->QueryDoubleAttribute("tiff:XResolution", &XResolution);
-		document->QueryDoubleAttribute("tiff:YResolution", &YResolution);
+		SetFieldIf(FIELD_ID_XResolution, document->QueryDoubleAttribute("tiff:XResolution", &XResolution) == tinyxml2::XML_SUCCESS);
+		SetFieldIf(FIELD_ID_YResolution, document->QueryDoubleAttribute("tiff:YResolution", &YResolution) == tinyxml2::XML_SUCCESS);
 		uint32_t _ResolutionUnit(0);
-		document->QueryUnsignedAttribute("tiff:ResolutionUnit", &_ResolutionUnit);
+		SetFieldIf(FIELD_ID_ResolutionUnit, document->QueryUnsignedAttribute("tiff:ResolutionUnit", &_ResolutionUnit) == tinyxml2::XML_SUCCESS);
 		ResolutionUnit = (uint16_t)_ResolutionUnit;
 	}
 
@@ -1164,8 +1312,10 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		//  Container:Directory / rdf:Seq / rdf:li / Container:Item[Item:Mime, Item:Length]
 		// some writers spell the container namespace "GContainer" and fold the item
 		// namespace into the attribute name, so both spellings are tried;
-		// this is XMP from an untrusted file, so every step of the walk may be missing
-		static bool VideoItem(const tinyxml2::XMLElement* document, std::string& mime, uint32_t& length) {
+		// this is XMP from an untrusted file, so every step of the walk may be missing;
+		// 'hasLength' reports whether the item carried a length, which the caller needs
+		// as this being a static of a local struct keeps it from marking the field itself
+		static bool VideoItem(const tinyxml2::XMLElement* document, std::string& mime, uint32_t& length, bool& hasLength) {
 			const char* const szDirectories[2] = {"Container:Directory", "GContainer:Directory"};
 			const char* const szItems[2] = {"Container:Item", "GContainer:Item"};
 			for (unsigned i=0; i<2; ++i) {
@@ -1187,8 +1337,9 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 						continue;
 					mime = itemMime;
 					// a container item may legitimately omit its length
-					Value(item, "Item:Length", length) ||
-					Value(item, "GContainer:ItemLength", length);
+					hasLength =
+						Value(item, "Item:Length", length) ||
+						Value(item, "GContainer:ItemLength", length);
 					return true;
 				}
 			}
@@ -1197,16 +1348,17 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 	};
 	const char* szAbout(document->Attribute("rdf:about"));
 	if (0 == strcasecmp(Make.c_str(), "DJI") || (szAbout != NULL && 0 == strcasecmp(szAbout, "DJI Meta Data"))) {
-		ParseXMP::Value(document, "drone-dji:AbsoluteAltitude", GeoLocation.Altitude);
-		ParseXMP::Value(document, "drone-dji:RelativeAltitude", GeoLocation.RelativeAltitude);
-		ParseXMP::Value(document, "drone-dji:GimbalRollDegree", GeoLocation.RollDegree);
-		ParseXMP::Value(document, "drone-dji:GimbalPitchDegree", GeoLocation.PitchDegree);
-		ParseXMP::Value(document, "drone-dji:GimbalYawDegree", GeoLocation.YawDegree);
-		ParseXMP::Value(document, "drone-dji:CalibratedFocalLength", Calibration.FocalLength);
-		ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterX", Calibration.OpticalCenterX);
-		ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterY", Calibration.OpticalCenterY);
+		SetFieldIf(FIELD_ID_GeoLocation_Altitude, ParseXMP::Value(document, "drone-dji:AbsoluteAltitude", GeoLocation.Altitude));
+		SetFieldIf(FIELD_ID_GeoLocation_RelativeAltitude, ParseXMP::Value(document, "drone-dji:RelativeAltitude", GeoLocation.RelativeAltitude));
+		SetFieldIf(FIELD_ID_GeoLocation_RollDegree, ParseXMP::Value(document, "drone-dji:GimbalRollDegree", GeoLocation.RollDegree));
+		SetFieldIf(FIELD_ID_GeoLocation_PitchDegree, ParseXMP::Value(document, "drone-dji:GimbalPitchDegree", GeoLocation.PitchDegree));
+		SetFieldIf(FIELD_ID_GeoLocation_YawDegree, ParseXMP::Value(document, "drone-dji:GimbalYawDegree", GeoLocation.YawDegree));
+		SetFieldIf(FIELD_ID_Calibration_FocalLength, ParseXMP::Value(document, "drone-dji:CalibratedFocalLength", Calibration.FocalLength));
+		SetFieldIf(FIELD_ID_Calibration_OpticalCenterX, ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterX", Calibration.OpticalCenterX));
+		SetFieldIf(FIELD_ID_Calibration_OpticalCenterY, ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterY", Calibration.OpticalCenterY));
 		std::string dewarpData;
-		ParseXMP::Value(document, "drone-dji:DewarpFlag", Distortion.DewarpFlag);
+		SetFieldIf(FIELD_ID_Distortion_DewarpFlag, ParseXMP::Value(document, "drone-dji:DewarpFlag", Distortion.DewarpFlag));
+		// DewarpData lands in a local: the fields it feeds are marked below, where they are written
 		ParseXMP::Value(document, "drone-dji:DewarpData", dewarpData);
 		std::vector<double> distortionParams;
 		size_t pos = dewarpData.find(';');
@@ -1226,63 +1378,71 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 			Distortion.P1 = distortionParams[6];
 			Distortion.P2 = distortionParams[7];
 			Distortion.K3 = distortionParams[8];
+			SetField(FIELD_ID_Distortion_K1);
+			SetField(FIELD_ID_Distortion_K2);
+			SetField(FIELD_ID_Distortion_P1);
+			SetField(FIELD_ID_Distortion_P2);
+			SetField(FIELD_ID_Distortion_K3);
 		}
 	} else
 	if (0 == strcasecmp(Make.c_str(), "senseFly") || 0 == strcasecmp(Make.c_str(), "Sentera")) {
-		ParseXMP::Value(document, "Camera:Roll", GeoLocation.RollDegree);
-		if (ParseXMP::Value(document, "Camera:Pitch", GeoLocation.PitchDegree)) {
+		SetFieldIf(FIELD_ID_GeoLocation_RollDegree, ParseXMP::Value(document, "Camera:Roll", GeoLocation.RollDegree));
+		if (SetFieldIf(FIELD_ID_GeoLocation_PitchDegree, ParseXMP::Value(document, "Camera:Pitch", GeoLocation.PitchDegree))) {
 			// convert to DJI format: senseFly uses pitch 0 as NADIR, whereas DJI -90
 			GeoLocation.PitchDegree = Tools::NormD180(GeoLocation.PitchDegree-90.0);
 		}
-		ParseXMP::Value(document, "Camera:Yaw", GeoLocation.YawDegree);
-		ParseXMP::Value(document, "Camera:GPSXYAccuracy", GeoLocation.AccuracyXY);
-		ParseXMP::Value(document, "Camera:GPSZAccuracy", GeoLocation.AccuracyZ);
+		SetFieldIf(FIELD_ID_GeoLocation_YawDegree, ParseXMP::Value(document, "Camera:Yaw", GeoLocation.YawDegree));
+		SetFieldIf(FIELD_ID_GeoLocation_AccuracyXY, ParseXMP::Value(document, "Camera:GPSXYAccuracy", GeoLocation.AccuracyXY));
+		SetFieldIf(FIELD_ID_GeoLocation_AccuracyZ, ParseXMP::Value(document, "Camera:GPSZAccuracy", GeoLocation.AccuracyZ));
 	} else
 	if (0 == strcasecmp(Make.c_str(), "PARROT")) {
-		ParseXMP::Value(document, "Camera:Roll", GeoLocation.RollDegree) ||
-		ParseXMP::Value(document, "drone-parrot:CameraRollDegree", GeoLocation.RollDegree);
-		if (ParseXMP::Value(document, "Camera:Pitch", GeoLocation.PitchDegree) ||
-			ParseXMP::Value(document, "drone-parrot:CameraPitchDegree", GeoLocation.PitchDegree)) {
+		SetFieldIf(FIELD_ID_GeoLocation_RollDegree, ParseXMP::Value(document, "Camera:Roll", GeoLocation.RollDegree)) ||
+		SetFieldIf(FIELD_ID_GeoLocation_RollDegree, ParseXMP::Value(document, "drone-parrot:CameraRollDegree", GeoLocation.RollDegree));
+		if (SetFieldIf(FIELD_ID_GeoLocation_PitchDegree, ParseXMP::Value(document, "Camera:Pitch", GeoLocation.PitchDegree)) ||
+			SetFieldIf(FIELD_ID_GeoLocation_PitchDegree, ParseXMP::Value(document, "drone-parrot:CameraPitchDegree", GeoLocation.PitchDegree))) {
 			// convert to DJI format: senseFly uses pitch 0 as NADIR, whereas DJI -90
 			GeoLocation.PitchDegree = Tools::NormD180(GeoLocation.PitchDegree-90.0);
 		}
-		ParseXMP::Value(document, "Camera:Yaw", GeoLocation.YawDegree) ||
-		ParseXMP::Value(document, "drone-parrot:CameraYawDegree", GeoLocation.YawDegree);
-		ParseXMP::Value(document, "Camera:AboveGroundAltitude", GeoLocation.RelativeAltitude);
+		SetFieldIf(FIELD_ID_GeoLocation_YawDegree, ParseXMP::Value(document, "Camera:Yaw", GeoLocation.YawDegree)) ||
+		SetFieldIf(FIELD_ID_GeoLocation_YawDegree, ParseXMP::Value(document, "drone-parrot:CameraYawDegree", GeoLocation.YawDegree));
+		SetFieldIf(FIELD_ID_GeoLocation_RelativeAltitude, ParseXMP::Value(document, "Camera:AboveGroundAltitude", GeoLocation.RelativeAltitude));
 	}
 	// Try parsing the XMP content for spherical (GPano) metadata.
 	// GPano:ProjectionType is parsed once, into the raw spec string; the existing numeric
 	// ProjectionType is derived from it below instead of being parsed independently, so the
 	// two fields can never drift out of sync with each other.
-	if (ParseXMP::Value(document, "GPano:ProjectionType", GPano.ProjectionType)) {
-		if (0 == strcasecmp(GPano.ProjectionType.c_str(), "perspective"))
+	if (SetFieldIf(FIELD_ID_GPano_ProjectionType, ParseXMP::Value(document, "GPano:ProjectionType", GPano.ProjectionType))) {
+		if (0 == strcasecmp(GPano.ProjectionType.c_str(), "perspective")) {
 			ProjectionType = 1;
-		else
-		if (GPano.isEquirectangular())
+			SetField(FIELD_ID_ProjectionType);
+		} else
+		if (GPano.isEquirectangular()) {
 			ProjectionType = 2;
+			SetField(FIELD_ID_ProjectionType);
+		}
 	}
-	ParseXMP::Value(document, "GPano:PoseHeadingDegrees", GPano.PoseHeadingDegrees);
-	ParseXMP::Value(document, "GPano:PosePitchDegrees", GPano.PosePitchDegrees);
-	ParseXMP::Value(document, "GPano:PoseRollDegrees", GPano.PoseRollDegrees);
-	ParseXMP::Value(document, "GPano:CroppedAreaImageWidthPixels", GPano.CroppedAreaImageWidthPixels);
-	ParseXMP::Value(document, "GPano:CroppedAreaImageHeightPixels", GPano.CroppedAreaImageHeightPixels);
-	ParseXMP::Value(document, "GPano:FullPanoWidthPixels", GPano.FullPanoWidthPixels);
-	ParseXMP::Value(document, "GPano:FullPanoHeightPixels", GPano.FullPanoHeightPixels);
-	ParseXMP::Value(document, "GPano:CroppedAreaLeftPixels", GPano.CroppedAreaLeftPixels);
-	ParseXMP::Value(document, "GPano:CroppedAreaTopPixels", GPano.CroppedAreaTopPixels);
+	SetFieldIf(FIELD_ID_GPano_PoseHeadingDegrees, ParseXMP::Value(document, "GPano:PoseHeadingDegrees", GPano.PoseHeadingDegrees));
+	SetFieldIf(FIELD_ID_GPano_PosePitchDegrees, ParseXMP::Value(document, "GPano:PosePitchDegrees", GPano.PosePitchDegrees));
+	SetFieldIf(FIELD_ID_GPano_PoseRollDegrees, ParseXMP::Value(document, "GPano:PoseRollDegrees", GPano.PoseRollDegrees));
+	SetFieldIf(FIELD_ID_GPano_CroppedAreaImageWidthPixels, ParseXMP::Value(document, "GPano:CroppedAreaImageWidthPixels", GPano.CroppedAreaImageWidthPixels));
+	SetFieldIf(FIELD_ID_GPano_CroppedAreaImageHeightPixels, ParseXMP::Value(document, "GPano:CroppedAreaImageHeightPixels", GPano.CroppedAreaImageHeightPixels));
+	SetFieldIf(FIELD_ID_GPano_FullPanoWidthPixels, ParseXMP::Value(document, "GPano:FullPanoWidthPixels", GPano.FullPanoWidthPixels));
+	SetFieldIf(FIELD_ID_GPano_FullPanoHeightPixels, ParseXMP::Value(document, "GPano:FullPanoHeightPixels", GPano.FullPanoHeightPixels));
+	SetFieldIf(FIELD_ID_GPano_CroppedAreaLeftPixels, ParseXMP::Value(document, "GPano:CroppedAreaLeftPixels", GPano.CroppedAreaLeftPixels));
+	SetFieldIf(FIELD_ID_GPano_CroppedAreaTopPixels, ParseXMP::Value(document, "GPano:CroppedAreaTopPixels", GPano.CroppedAreaTopPixels));
 
 	// parse GCamera:MicroVideo
 	if (document->Attribute("GCamera:MicroVideo")) {
-		ParseXMP::Value(document, "GCamera:MicroVideo", MicroVideo.HasMicroVideo);
-		ParseXMP::Value(document, "GCamera:MicroVideoVersion", MicroVideo.MicroVideoVersion);
-		ParseXMP::Value(document, "GCamera:MicroVideoOffset", MicroVideo.MicroVideoOffset);
+		SetFieldIf(FIELD_ID_MicroVideo_HasMicroVideo, ParseXMP::Value(document, "GCamera:MicroVideo", MicroVideo.HasMicroVideo));
+		SetFieldIf(FIELD_ID_MicroVideo_MicroVideoVersion, ParseXMP::Value(document, "GCamera:MicroVideoVersion", MicroVideo.MicroVideoVersion));
+		SetFieldIf(FIELD_ID_MicroVideo_MicroVideoOffset, ParseXMP::Value(document, "GCamera:MicroVideoOffset", MicroVideo.MicroVideoOffset));
 	}
 	// parse GCamera:MotionPhoto, the container format that supersedes GCamera:MicroVideo;
 	// deliberately not an "else" of the block above: the two write to disjoint fields, so a
 	// transitional file declaring both attributes reports both instead of losing one of them,
 	// and neither can overwrite the other's data
 	if (document->Attribute("GCamera:MotionPhoto")) {
-		ParseXMP::Value(document, "GCamera:MotionPhoto", MicroVideo.HasMotionPhoto);
+		SetFieldIf(FIELD_ID_MicroVideo_HasMotionPhoto, ParseXMP::Value(document, "GCamera:MotionPhoto", MicroVideo.HasMotionPhoto));
 		// the container gives the video item's *length*; it is deliberately not stored in
 		// MicroVideoOffset, which is an offset from the end of the file - a different
 		// quantity as soon as the container lists any item after the video.
@@ -1290,8 +1450,11 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		// GCamera:MotionPhoto="0" while carrying a container for something else (an Ultra HDR
 		// gain map, say) must not come back with the payload fields filled in, or
 		// HasMotionPhoto would no longer tell "no motion photo" from "length unknown"
-		if (MicroVideo.HasMotionPhoto)
-			ParseXMP::VideoItem(document, MicroVideo.MotionPhotoMime, MicroVideo.MotionPhotoLength);
+		if (MicroVideo.HasMotionPhoto) {
+			bool hasLength(false);
+			if (SetFieldIf(FIELD_ID_MicroVideo_MotionPhotoMime, ParseXMP::VideoItem(document, MicroVideo.MotionPhotoMime, MicroVideo.MotionPhotoLength, hasLength)))
+				SetFieldIf(FIELD_ID_MicroVideo_MotionPhotoLength, hasLength);
+		}
 	}
 	return PARSE_SUCCESS;
 }
@@ -1401,6 +1564,9 @@ bool EXIFInfo::GPano_t::isEquirectangular() const {
 
 void EXIFInfo::clear() {
 	Fields = FIELD_NA;
+
+	// Presence bits: nothing was found yet
+	FieldsPresent.assign(FIELD_ID_WORDS, 0);
 
 	// Strings
 	ImageDescription  = "";

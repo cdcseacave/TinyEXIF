@@ -7,6 +7,7 @@
 #include <iostream> // std::cout
 #include <fstream>  // std::ifstream
 #include <vector>   // std::vector
+#include <string>   // std::string
 #include <iomanip>  // std::setprecision
 
 // Compile-time check that TINYEXIF_VERSION works as documented in TinyEXIF.h:
@@ -19,8 +20,11 @@ static_assert(sizeof(TINYEXIF_VERSION_STRING) > 1, "TINYEXIF_VERSION_STRING must
 
 int main(int argc, const char** argv)
 {
-	if (argc != 2) {
-		std::cout << "Usage: TinyEXIF <image_file>\n";
+	// the field list is optional so that the output above stays the same for
+	// everything that already parses it
+	const bool listFields(argc == 3 && std::string(argv[2]) == "--fields");
+	if (!listFields && argc != 2) {
+		std::cout << "Usage: TinyEXIF <image_file> [--fields]\n";
 		return -1;
 	}
 
@@ -170,6 +174,20 @@ int main(int argc, const char** argv)
 		std::cout << "MicroVideo.MotionPhotoLength " << imageEXIF.MicroVideo.MotionPhotoLength << "\n";
 		if (!imageEXIF.MicroVideo.MotionPhotoMime.empty())
 			std::cout << "MicroVideo.MotionPhotoMime " << imageEXIF.MicroVideo.MotionPhotoMime << "\n";
+	}
+
+	// list which fields were actually present: the values printed above can not
+	// tell a tag that was absent from a tag that was there and legitimately zero,
+	// while HasField()/GetFields() can
+	if (listFields) {
+		const std::vector<TinyEXIF::FieldID> fields(imageEXIF.GetFields());
+		std::cout << "Fields present: " << fields.size() << "\n";
+		for (size_t i=0; i<fields.size(); ++i)
+			std::cout << "  " << TinyEXIF::FieldName(fields[i]) << "\n";
+		// ISOSpeedRatings is the example from issue #15: a value of 0 means
+		// "absent" or "the camera really reported 0" and only this tells which
+		std::cout << "ISOSpeedRatings " << imageEXIF.ISOSpeedRatings
+			<< (imageEXIF.HasField(TinyEXIF::FIELD_ID_ISOSpeedRatings) ? " (present)" : " (absent)") << "\n";
 	}
 	return EXIT_SUCCESS;
 }

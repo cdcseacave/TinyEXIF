@@ -34,6 +34,43 @@ int main(int argc, const char** argv) {
 ```
 See `main.cpp` for more details.
 
+## Absent tags vs tags that are legitimately zero
+
+All data fields are zero-initialised, so a value of `0` on its own does not say whether the tag
+was missing from the file or whether the camera really wrote a `0`. `HasField()` answers that,
+and `GetFields()` lists everything that was found:
+
+```
+	TinyEXIF::EXIFInfo imageEXIF(istream);
+
+	// ISOSpeedRatings == 0 alone is ambiguous, this is not
+	if (imageEXIF.HasField(TinyEXIF::FIELD_ID_ISOSpeedRatings))
+		std::cout << "ISO " << imageEXIF.ISOSpeedRatings << "\n";
+	else
+		std::cout << "ISO not recorded by the camera\n";
+
+	// list every tag that was present
+	for (TinyEXIF::FieldID id: imageEXIF.GetFields())
+		std::cout << TinyEXIF::FieldName(id) << "\n";
+```
+
+There is one `FieldID` enumerator per data field, named `FIELD_ID_` followed by the path of the
+member it fills, e.g. `FIELD_ID_GeoLocation_Altitude` for `GeoLocation.Altitude`; `FieldName()`
+returns that path as a string. A field counts as present when the tag carrying it was parsed
+successfully, from EXIF or from XMP; a tag that is present but malformed does not count.
+Existing fields, sentinel values (`DBL_MAX`, `UINT32_MAX`) and `hasXxx()` accessors are
+unchanged, so this is purely additive.
+
+Run the demo with `TinyEXIFdemo <image_file> --fields` to print the list for a file.
+
+This API was added in 1.1.0 and can be feature-gated with the `TINYEXIF_VERSION` macro:
+
+```
+	#if TINYEXIF_VERSION >= 10100
+	// TinyEXIF::EXIFInfo::HasField() is available
+	#endif
+```
+
 ## License
 
 MIT [License](https://github.com/cdcseacave/TinyEXIF/blob/master/LICENSE)

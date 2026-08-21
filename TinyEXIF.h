@@ -69,6 +69,121 @@ enum FieldCode {
 	FIELD_ALL                = FIELD_EXIF|FIELD_XMP
 };
 
+// Identifies one data field of EXIFInfo, for HasField()/GetFields(); it tells
+// "tag absent" apart from "tag present and legitimately zero", which the value
+// of a zero-initialized field alone can not.
+// There is one enumerator per destination field, named FIELD_ID_ after the
+// member it fills, not after the EXIF tag number: several EXIF tags and their
+// XMP equivalents write the same member, and either source setting it counts
+// as present. Note that FieldCode above (FIELD_EXIF/FIELD_XMP) is a different
+// thing: it says which segment was found, not which tags were parsed.
+// New enumerators are appended before FIELD_ID_COUNT, so the numeric value of
+// an existing one never changes.
+enum FieldID {
+	// EXIFInfo
+	FIELD_ID_ImageWidth = 0,
+	FIELD_ID_ImageHeight,
+	FIELD_ID_RelatedImageWidth,
+	FIELD_ID_RelatedImageHeight,
+	FIELD_ID_ImageDescription,
+	FIELD_ID_Make,
+	FIELD_ID_Model,
+	FIELD_ID_SerialNumber,
+	FIELD_ID_Orientation,
+	FIELD_ID_XResolution,
+	FIELD_ID_YResolution,
+	FIELD_ID_ResolutionUnit,
+	FIELD_ID_BitsPerSample,
+	FIELD_ID_Software,
+	FIELD_ID_DateTime,
+	FIELD_ID_DateTimeOriginal,
+	FIELD_ID_DateTimeDigitized,
+	FIELD_ID_SubSecTimeOriginal,
+	FIELD_ID_Copyright,
+	FIELD_ID_ExposureTime,
+	FIELD_ID_FNumber,
+	FIELD_ID_ExposureProgram,
+	FIELD_ID_ISOSpeedRatings,           // also set by the ExposureIndex tag, used interchangeably
+	FIELD_ID_ShutterSpeedValue,
+	FIELD_ID_ApertureValue,
+	FIELD_ID_BrightnessValue,
+	FIELD_ID_ExposureBiasValue,
+	FIELD_ID_SubjectDistance,
+	FIELD_ID_FocalLength,
+	FIELD_ID_Flash,
+	FIELD_ID_MeteringMode,
+	FIELD_ID_LightSource,
+	FIELD_ID_ProjectionType,            // the numeric value derived from GPano:ProjectionType
+	FIELD_ID_SubjectArea,               // set if at least one of its components was read
+	// EXIFInfo::Calibration
+	FIELD_ID_Calibration_FocalLength,
+	FIELD_ID_Calibration_OpticalCenterX,
+	FIELD_ID_Calibration_OpticalCenterY,
+	// EXIFInfo::Distortion
+	FIELD_ID_Distortion_DewarpFlag,
+	FIELD_ID_Distortion_K1,
+	FIELD_ID_Distortion_K2,
+	FIELD_ID_Distortion_P1,
+	FIELD_ID_Distortion_P2,
+	FIELD_ID_Distortion_K3,
+	// EXIFInfo::LensInfo
+	FIELD_ID_LensInfo_FStopMin,
+	FIELD_ID_LensInfo_FStopMax,
+	FIELD_ID_LensInfo_FocalLengthMin,
+	FIELD_ID_LensInfo_FocalLengthMax,
+	FIELD_ID_LensInfo_DigitalZoomRatio,
+	FIELD_ID_LensInfo_FocalLengthIn35mm,
+	FIELD_ID_LensInfo_FocalPlaneXResolution,
+	FIELD_ID_LensInfo_FocalPlaneYResolution,
+	FIELD_ID_LensInfo_FocalPlaneResolutionUnit,
+	FIELD_ID_LensInfo_Make,
+	FIELD_ID_LensInfo_Model,
+	// EXIFInfo::GeoLocation
+	FIELD_ID_GeoLocation_Latitude,      // set by the GPSLatitude components feeding LatComponents
+	FIELD_ID_GeoLocation_Longitude,     // set by the GPSLongitude components feeding LonComponents
+	FIELD_ID_GeoLocation_Altitude,
+	FIELD_ID_GeoLocation_AltitudeRef,
+	FIELD_ID_GeoLocation_RelativeAltitude,
+	FIELD_ID_GeoLocation_RollDegree,
+	FIELD_ID_GeoLocation_PitchDegree,
+	FIELD_ID_GeoLocation_YawDegree,
+	FIELD_ID_GeoLocation_SpeedX,
+	FIELD_ID_GeoLocation_SpeedY,
+	FIELD_ID_GeoLocation_SpeedZ,
+	FIELD_ID_GeoLocation_AccuracyXY,
+	FIELD_ID_GeoLocation_AccuracyZ,
+	FIELD_ID_GeoLocation_GPSDOP,
+	FIELD_ID_GeoLocation_GPSDifferential,
+	FIELD_ID_GeoLocation_GPSMapDatum,
+	FIELD_ID_GeoLocation_GPSTimeStamp,
+	FIELD_ID_GeoLocation_GPSDateStamp,
+	FIELD_ID_GeoLocation_LatComponents_direction,// GPSLatitudeRef, the N/S hemisphere of Latitude
+	FIELD_ID_GeoLocation_LonComponents_direction,// GPSLongitudeRef, the E/W hemisphere of Longitude
+	// EXIFInfo::GPano
+	FIELD_ID_GPano_PosePitchDegrees,
+	FIELD_ID_GPano_PoseRollDegrees,
+	FIELD_ID_GPano_PoseHeadingDegrees,
+	FIELD_ID_GPano_ProjectionType,
+	FIELD_ID_GPano_CroppedAreaImageWidthPixels,
+	FIELD_ID_GPano_CroppedAreaImageHeightPixels,
+	FIELD_ID_GPano_FullPanoWidthPixels,
+	FIELD_ID_GPano_FullPanoHeightPixels,
+	FIELD_ID_GPano_CroppedAreaLeftPixels,
+	FIELD_ID_GPano_CroppedAreaTopPixels,
+	// EXIFInfo::MicroVideo
+	FIELD_ID_MicroVideo_HasMicroVideo,
+	FIELD_ID_MicroVideo_MicroVideoVersion,
+	FIELD_ID_MicroVideo_MicroVideoOffset,
+	FIELD_ID_MicroVideo_HasMotionPhoto,
+	FIELD_ID_MicroVideo_MotionPhotoLength,
+	FIELD_ID_MicroVideo_MotionPhotoMime,
+	FIELD_ID_COUNT                      // number of known fields; not a field itself
+};
+
+// Return the name of the given field as the path of the member it fills,
+// e.g. "GeoLocation.Altitude"; empty string if the ID is not a known field.
+TINYEXIF_LIB const char* FieldName(FieldID id);
+
 class EntryParser;
 
 //
@@ -128,6 +243,14 @@ public:
 	// Should be called before parsing a new stream.
 	void clear();
 
+	// Return true if the given field was actually present in the parsed data;
+	// this is what distinguishes a tag that was absent from a tag that was
+	// present and legitimately zero, which the field value alone can not.
+	bool HasField(FieldID id) const;
+	// Return the ID of every field that was found, in FieldID order;
+	// see FieldName() to turn one into a printable name.
+	std::vector<FieldID> GetFields() const;
+
 private:
 	// Parse tag as Image IFD; the sub-IFD offsets are 64bit as they are read from
 	// attacker controlled data and must be range checked before being used.
@@ -138,6 +261,17 @@ private:
 	void parseIFDGPS(EntryParser&);
 	// Parse tag as MakerNote IFD.
 	void parseIFDMakerNote(EntryParser&);
+
+	// Mark the given field as present.
+	void SetField(FieldID id);
+	// Mark the given field as present if 'fetched' says its fetch succeeded, and
+	// return 'fetched' unchanged; every fetch site is instrumented through this,
+	// so it neither hides which field it marks nor alters the control flow around it.
+	bool SetFieldIf(FieldID id, bool fetched);
+
+	// Presence bit per FieldID, queried by HasField(); a vector rather than a
+	// fixed-size array so that adding fields later does not change this layout.
+	std::vector<uint64_t> FieldsPresent;
 
 public:
 	// Data fields
