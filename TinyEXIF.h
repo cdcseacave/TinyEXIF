@@ -264,7 +264,10 @@ public:
 		double Latitude;                // Image latitude expressed as decimal
 		double Longitude;               // Image longitude expressed as decimal
 		double Altitude;                // Altitude in meters, relative to sea level
-		int8_t AltitudeRef;             // 0: above sea level, -1: below sea level
+		int8_t AltitudeRef;             // 0: above sea level
+										// 1: below sea level
+										// 2: positive sea-level reference
+										// 3: negative sea-level reference
 		double RelativeAltitude;        // Relative altitude in meters
 		double RollDegree;              // Flight roll in degrees
 		double PitchDegree;             // Flight pitch in degrees

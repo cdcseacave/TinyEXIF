@@ -729,7 +729,9 @@ void EXIFInfo::parseIFDGPS(EntryParser& parser) {
 
 	case 5:
 		// GPS altitude reference (below or above sea level)
-		parser.Fetch((uint8_t&)GeoLocation.AltitudeRef);
+		uint8_t altitudeRef;
+		if (parser.Fetch(altitudeRef))
+			GeoLocation.AltitudeRef = (int8_t)altitudeRef;
 		break;
 
 	case 6:
@@ -1257,8 +1259,8 @@ void EXIFInfo::Geolocation_t::parseCoords() {
 	}
 	// Convert GPS altitude
 	if (hasAltitude() &&
-		AltitudeRef == 1) {
-		Altitude = -Altitude;
+		(AltitudeRef == 1 || AltitudeRef == 3)) {
+		Altitude = -std::abs(Altitude);
 	}
 }
 
