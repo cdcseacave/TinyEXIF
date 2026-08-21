@@ -162,5 +162,14 @@ int main(int argc, const char** argv)
 		std::cout << "Distortion [K1 K2 P1 P2 K3] " << std::setprecision(6)
 		          << imageEXIF.Distortion.K1 << " " << imageEXIF.Distortion.K2 << " " << imageEXIF.Distortion.P1
 		          << " " << imageEXIF.Distortion.P2 << " " << imageEXIF.Distortion.K3 << "\n";
+	if (imageEXIF.MicroVideo.HasMicroVideo) {
+		std::cout << "MicroVideo.MicroVideoVersion " << imageEXIF.MicroVideo.MicroVideoVersion << "\n";
+		std::cout << "MicroVideo.MicroVideoOffset " << imageEXIF.MicroVideo.MicroVideoOffset << "\n";
+	}
+	if (imageEXIF.MicroVideo.HasMotionPhoto) {
+		std::cout << "MicroVideo.MotionPhotoLength " << imageEXIF.MicroVideo.MotionPhotoLength << "\n";
+		if (!imageEXIF.MicroVideo.MotionPhotoMime.empty())
+			std::cout << "MicroVideo.MotionPhotoMime " << imageEXIF.MicroVideo.MotionPhotoMime << "\n";
+	}
 	return EXIT_SUCCESS;
 }

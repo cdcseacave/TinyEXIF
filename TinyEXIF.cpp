@@ -10,6 +10,9 @@
 #include "TinyEXIF.h"
 #include <cstddef>
 #include <cstdio>
+#include <cstdlib>
+#include <cctype>
+#include <cerrno>
 #include <cmath>
 #include <cfloat>
 #include <vector>
@@ -1115,7 +1118,11 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 			}
 			return false;
 		}
-		// same as previous function but with unsigned int results
+		// same as previous function but with unsigned int results;
+		// values too large for uint32_t (a video item longer than 4GiB, for example) saturate
+		// at UINT32_MAX instead of silently wrapping, and text that starts with no digits at
+		// all is reported as absent instead of as a zero; strtoull, not strtoul, is used so
+		// the range check is meaningful where unsigned long is only 32 bits wide
 		static bool Value(const tinyxml2::XMLElement* document, const char* name, uint32_t& value) {
 			const char* szAttribute = document->Attribute(name);
 			if (szAttribute == NULL) {
@@ -1123,7 +1130,12 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 				if (element == NULL || (szAttribute = element->GetText()) == NULL)
 					return false;
 			}
-			value = strtoul(szAttribute, NULL, 0);
+			char* szEnd(NULL);
+			errno = 0;
+			const unsigned long long ullValue(strtoull(szAttribute, &szEnd, 0));
+			if (szEnd == szAttribute)
+				return false;
+			value = (errno == ERANGE || ullValue > UINT32_MAX ? UINT32_MAX : (uint32_t)ullValue);
 			return true;
 		}
 		// same as previous function but with std::string
@@ -1136,6 +1148,48 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 			}
 			value = std::string(szAttribute);
 			return true;
+		}
+		// true if the given mime type names a video; mime types are case insensitive
+		static bool IsVideoMime(const std::string& mime) {
+			std::string lower(mime);
+			for (std::string::iterator it=lower.begin(); it!=lower.end(); ++it)
+				*it = (char)tolower((unsigned char)*it);
+			return lower.compare(0, 6, "video/") == 0;
+		}
+		// fetch the mime type and the byte length of the first video item listed in the
+		// GCamera:MotionPhoto container directory:
+		//  Container:Directory / rdf:Seq / rdf:li / Container:Item[Item:Mime, Item:Length]
+		// some writers spell the container namespace "GContainer" and fold the item
+		// namespace into the attribute name, so both spellings are tried;
+		// this is XMP from an untrusted file, so every step of the walk may be missing
+		static bool VideoItem(const tinyxml2::XMLElement* document, std::string& mime, uint32_t& length) {
+			const char* const szDirectories[2] = {"Container:Directory", "GContainer:Directory"};
+			const char* const szItems[2] = {"Container:Item", "GContainer:Item"};
+			for (unsigned i=0; i<2; ++i) {
+				const tinyxml2::XMLElement* const directory(document->FirstChildElement(szDirectories[i]));
+				if (directory == NULL)
+					continue;
+				const tinyxml2::XMLElement* const seq(directory->FirstChildElement("rdf:Seq"));
+				if (seq == NULL)
+					continue;
+				for (const tinyxml2::XMLElement* li(seq->FirstChildElement("rdf:li")); li != NULL; li=li->NextSiblingElement("rdf:li")) {
+					const tinyxml2::XMLElement* const item(li->FirstChildElement(szItems[i]));
+					if (item == NULL)
+						continue;
+					std::string itemMime;
+					if (!Value(item, "Item:Mime", itemMime) &&
+						!Value(item, "GContainer:ItemMime", itemMime))
+						continue;
+					if (!IsVideoMime(itemMime))
+						continue;
+					mime = itemMime;
+					// a container item may legitimately omit its length
+					Value(item, "Item:Length", length) ||
+					Value(item, "GContainer:ItemLength", length);
+					return true;
+				}
+			}
+			return false;
 		}
 	};
 	const char* szAbout(document->Attribute("rdf:about"));
@@ -1219,6 +1273,17 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		ParseXMP::Value(document, "GCamera:MicroVideo", MicroVideo.HasMicroVideo);
 		ParseXMP::Value(document, "GCamera:MicroVideoVersion", MicroVideo.MicroVideoVersion);
 		ParseXMP::Value(document, "GCamera:MicroVideoOffset", MicroVideo.MicroVideoOffset);
+	}
+	// parse GCamera:MotionPhoto, the container format that supersedes GCamera:MicroVideo;
+	// deliberately not an "else" of the block above: the two write to disjoint fields, so a
+	// transitional file declaring both attributes reports both instead of losing one of them,
+	// and neither can overwrite the other's data
+	if (document->Attribute("GCamera:MotionPhoto")) {
+		ParseXMP::Value(document, "GCamera:MotionPhoto", MicroVideo.HasMotionPhoto);
+		// the container gives the video item's *length*; it is deliberately not stored in
+		// MicroVideoOffset, which is an offset from the end of the file - a different
+		// quantity as soon as the container lists any item after the video
+		ParseXMP::VideoItem(document, MicroVideo.MotionPhotoMime, MicroVideo.MotionPhotoLength);
 	}
 	return PARSE_SUCCESS;
 }
@@ -1437,6 +1502,9 @@ void EXIFInfo::clear() {
 	MicroVideo.HasMicroVideo = 0;
 	MicroVideo.MicroVideoVersion = 0;
 	MicroVideo.MicroVideoOffset = 0;
+	MicroVideo.HasMotionPhoto = 0;
+	MicroVideo.MotionPhotoLength = 0;
+	MicroVideo.MotionPhotoMime = "";
 }
 
 } // namespace TinyEXIF

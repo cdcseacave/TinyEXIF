@@ -343,7 +343,10 @@ public:
 	struct TINYEXIF_LIB MicroVideo_t {  // Google camera video file in metadata
 		uint32_t HasMicroVideo;         // not zero if exists
 		uint32_t MicroVideoVersion;     // just regularinfo
-		uint32_t MicroVideoOffset;      // offset from end of file
+		uint32_t MicroVideoOffset;      // legacy GCamera:MicroVideo - offset from end of file
+		uint32_t HasMotionPhoto;        // GCamera:MotionPhoto - not zero if exists (newer container format, supersedes GCamera:MicroVideo)
+		uint32_t MotionPhotoLength;     // GCamera:MotionPhoto - length in bytes of the trailing video item, saturated at UINT32_MAX; a length, not an offset: it differs from MicroVideoOffset as soon as the container holds items after the video
+		std::string MotionPhotoMime;    // GCamera:MotionPhoto - mime type of the trailing video item, e.g. "video/mp4" (empty if the container declared none)
 	} MicroVideo;
 };
 
