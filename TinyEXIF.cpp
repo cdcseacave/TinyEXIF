@@ -154,15 +154,30 @@ public:
 	EntryParser(const uint8_t* _buf, unsigned _len, unsigned _tiff_header_start, bool _alignIntel)
 		: buf(_buf), len(_len), tiff_header_start(_tiff_header_start), alignIntel(_alignIntel), offs(0) {}
 
+	// Every read of buf must be validated by this: does the range [offset, offset+size)
+	// lie inside the buffer? Written as a subtraction so the check itself can not
+	// overflow, and taking a 64bit offset so that offsets the caller computes from
+	// attacker controlled data (base + idx*size) can not wrap around either.
+	bool InBounds(uint64_t offset, uint32_t size) const {
+		return offset <= len && (uint64_t)len - offset >= size;
+	}
+
 	void Init(unsigned _offs) {
+		// ParseTag() steps forward by one entry before reading, so start one entry
+		// earlier; the wrap-around for _offs < 12 is undone by that same step
 		offs = _offs - 12;
 	}
 
-	void ParseTag() {
+	// Step to the next 12-byte IFD entry and read it;
+	// returns false without touching the current entry if it does not fit the buffer
+	bool ParseTag() {
 		offs  += 12;
+		if (!InBounds(offs, 12))
+			return false;
 		tag    = parse16(buf + offs, alignIntel);
 		format = parse16(buf + offs + 2, alignIntel);
 		length = parse32(buf + offs + 4, alignIntel);
+		return true;
 	}
 
 	const uint8_t* GetBuffer() const { return buf; }
@@ -172,7 +187,9 @@ public:
 	uint16_t GetTag() const { return tag; }
 	uint32_t GetLength() const { return length; }
 	uint32_t GetData() const { return parse32(buf + offs + 8, alignIntel); }
-	uint32_t GetSubIFD() const { return tiff_header_start + GetData(); }
+	// absolute offset of the data this entry points to; 64bit because the data offset
+	// is fully attacker controlled and would wrap when added to the header start
+	uint64_t GetSubIFD() const { return (uint64_t)tiff_header_start + GetData(); }
 
 	bool IsShort() const { return format == 3; }
 	bool IsLong() const { return format == 4; }
@@ -205,10 +222,10 @@ public:
 	bool Fetch(uint16_t& val, uint32_t idx) const {
 		if (!IsShort() || length <= idx)
 			return false;
-		const uint32_t offset = GetSubIFD() + idx*2;
-		if (offset + 2 > len)
+		const uint64_t offset = GetSubIFD() + (uint64_t)idx*2;
+		if (!InBounds(offset, 2))
 			return false;
-		val = parse16(buf + offset, alignIntel);
+		val = parse16(buf + (size_t)offset, alignIntel);
 		return true;
 	}
 	bool Fetch(uint32_t& val) const {
@@ -226,16 +243,19 @@ public:
 	bool Fetch(double& val) const {
 		if (!IsRational() || length == 0)
 			return false;
-		val = parseRational(buf + GetSubIFD(), alignIntel, IsSRational());
+		const uint64_t offset = GetSubIFD();
+		if (!InBounds(offset, 8))
+			return false;
+		val = parseRational(buf + (size_t)offset, alignIntel, IsSRational());
 		return true;
 	}
 	bool Fetch(double& val, uint32_t idx) const {
 		if (!IsRational() || length <= idx)
 			return false;
-		const uint32_t offset = GetSubIFD() + idx*8;
-		if (offset + 8 > len)
+		const uint64_t offset = GetSubIFD() + (uint64_t)idx*8;
+		if (!InBounds(offset, 8))
 			return false;
-		val = parseRational(buf + offset, alignIntel, IsSRational());
+		val = parseRational(buf + (size_t)offset, alignIntel, IsSRational());
 		return true;
 	}
 
@@ -330,7 +350,7 @@ EXIFInfo::EXIFInfo(const uint8_t* data, unsigned length) {
 
 
 // Parse tag as Image IFD
-void EXIFInfo::parseIFDImage(EntryParser& parser, unsigned& exif_sub_ifd_offset, unsigned& gps_sub_ifd_offset) {
+void EXIFInfo::parseIFDImage(EntryParser& parser, uint64_t& exif_sub_ifd_offset, uint64_t& gps_sub_ifd_offset) {
 	switch (parser.GetTag()) {
 	case 0x0102:
 		// Bits per sample
@@ -615,20 +635,30 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 // Parse tag as MakerNote IFD
 void EXIFInfo::parseIFDMakerNote(EntryParser& parser) {
 	const unsigned startOff = parser.GetOffset();
-	const uint32_t off = parser.GetSubIFD();
+	const uint64_t off = parser.GetSubIFD();
 	if (0 != strcasecmp(Make.c_str(), "DJI"))
 		return;
-	int num_entries = EntryParser::parse16(parser.GetBuffer()+off, parser.IsIntelAligned());
+	// the MakerNote is a full IFD of its own: entry count followed by 12-byte entries,
+	// none of which the tag's own length field is allowed to vouch for
+	if (!parser.InBounds(off, 2))
+		return;
+	int num_entries = EntryParser::parse16(parser.GetBuffer()+(size_t)off, parser.IsIntelAligned());
 	if (uint32_t(2 + 12 * num_entries) > parser.GetLength())
 		return;
-	parser.Init(off+2);
-	parser.ParseTag();
+	if (!parser.InBounds(off+2, 12*(uint32_t)num_entries))
+		return;
+	parser.Init((unsigned)(off+2));
+	if (!parser.ParseTag()) {
+		parser.Init(startOff+12);
+		return;
+	}
 	--num_entries;
 	std::string maker;
 	if (parser.GetTag() == 1 && parser.Fetch(maker)) {
 		if (0 == strcasecmp(maker.c_str(), "DJI")) {
 			while (--num_entries >= 0) {
-				parser.ParseTag();
+				if (!parser.ParseTag())
+					break;
 				switch (parser.GetTag()) {
 				case 3:
 					// SpeedX
@@ -935,15 +965,21 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 		alignIntel = !IS_LITTLE_ENDIAN; // 0: Motorola byte alignment
 	else
 		return PARSE_UNKNOWN_BYTEALIGN;
-	EntryParser parser(buf, len, offs, alignIntel);
+	const unsigned tiff_header_start = offs;
+	EntryParser parser(buf, len, tiff_header_start, alignIntel);
 	offs += 2;
 	if (0x2a != EntryParser::parse16(buf + offs, alignIntel))
 		return PARSE_CORRUPT_DATA;
 	offs += 2;
-	const unsigned first_ifd_offset = EntryParser::parse32(buf + offs, alignIntel);
-	offs += first_ifd_offset - 4;
-	if (offs >= len)
+	// the first IFD offset is relative to the TIFF header start and it is stored in the
+	// 4 bytes it has to skip, so anything below 4 points back into the TIFF header
+	const uint32_t first_ifd_offset = EntryParser::parse32(buf + offs, alignIntel);
+	if (first_ifd_offset < 4)
 		return PARSE_CORRUPT_DATA;
+	const uint64_t first_ifd = (uint64_t)tiff_header_start + first_ifd_offset;
+	if (first_ifd >= len)
+		return PARSE_CORRUPT_DATA;
+	offs = (unsigned)first_ifd;
 
 	// Now parsing the first Image File Directory (IFD0, for the main image).
 	// An IFD consists of a variable number of 12-byte directory entries. The
@@ -953,16 +989,17 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	// bytes of data.
 	// Note that it's possible that the next IFD offset doesn't exist,
 	// so here the last 4 bytes are considered optional.
-	if (offs + 2 > len)
+	if (!parser.InBounds(offs, 2))
 		return PARSE_CORRUPT_DATA;
 	unsigned num_entries = EntryParser::parse16(buf + offs, alignIntel);
-	if (offs + 2 + 12 * num_entries > len)
+	if (!parser.InBounds(offs + 2, 12 * num_entries))
 		return PARSE_CORRUPT_DATA;
-	unsigned exif_sub_ifd_offset = len;
-	unsigned gps_sub_ifd_offset  = len;
+	uint64_t exif_sub_ifd_offset = len;
+	uint64_t gps_sub_ifd_offset  = len;
 	parser.Init(offs+2);
 	while (num_entries-- > 0) {
-		parser.ParseTag();
+		if (!parser.ParseTag())
+			break;
 		parseIFDImage(parser, exif_sub_ifd_offset, gps_sub_ifd_offset);
 	}
 
@@ -970,28 +1007,30 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	// there. Note that it's possible that the EXIF SubIFD doesn't exist.
 	// The EXIF SubIFD contains most of the interesting information that a
 	// typical user might want.
-	if (exif_sub_ifd_offset + 4 <= len) {
-		offs = exif_sub_ifd_offset;
+	if (parser.InBounds(exif_sub_ifd_offset, 4)) {
+		offs = (unsigned)exif_sub_ifd_offset;
 		num_entries = EntryParser::parse16(buf + offs, alignIntel);
-		if (offs + 2 + 12 * num_entries > len)
+		if (!parser.InBounds(offs + 2, 12 * num_entries))
 			return PARSE_CORRUPT_DATA;
 		parser.Init(offs+2);
 		while (num_entries-- > 0) {
-			parser.ParseTag();
+			if (!parser.ParseTag())
+				break;
 			parseIFDExif(parser);
 		}
 	}
 
 	// Jump to the GPS SubIFD if it exists and parse all the information
 	// there. Note that it's possible that the GPS SubIFD doesn't exist.
-	if (gps_sub_ifd_offset + 4 <= len) {
-		offs = gps_sub_ifd_offset;
+	if (parser.InBounds(gps_sub_ifd_offset, 4)) {
+		offs = (unsigned)gps_sub_ifd_offset;
 		num_entries = EntryParser::parse16(buf + offs, alignIntel);
-		if (offs + 2 + 12 * num_entries > len)
+		if (!parser.InBounds(offs + 2, 12 * num_entries))
 			return PARSE_CORRUPT_DATA;
 		parser.Init(offs+2);
 		while (num_entries-- > 0) {
-			parser.ParseTag();
+			if (!parser.ParseTag())
+				break;
 			parseIFDGPS(parser);
 		}
 		GeoLocation.parseCoords();

@@ -109,8 +109,9 @@ public:
 	void clear();
 
 private:
-	// Parse tag as Image IFD.
-	void parseIFDImage(EntryParser&, unsigned&, unsigned&);
+	// Parse tag as Image IFD; the sub-IFD offsets are 64bit as they are read from
+	// attacker controlled data and must be range checked before being used.
+	void parseIFDImage(EntryParser&, uint64_t&, uint64_t&);
 	// Parse tag as Exif IFD.
 	void parseIFDExif(EntryParser&);
 	// Parse tag as GPS IFD.
