@@ -134,10 +134,28 @@ int main(int argc, const char** argv)
 		std::cout << "GeoLocation.GPSTimeStamp " << imageEXIF.GeoLocation.GPSTimeStamp << "\n";
 	if (!imageEXIF.GeoLocation.GPSDateStamp.empty())
 		std::cout << "GeoLocation.GPSDateStamp " << imageEXIF.GeoLocation.GPSDateStamp << "\n";
+	if (!imageEXIF.GPano.ProjectionType.empty()) {
+		std::cout << "GPano.ProjectionType " << imageEXIF.GPano.ProjectionType << "\n";
+		std::cout << "GPano.isEquirectangular " << (imageEXIF.GPano.isEquirectangular() ? "true" : "false") << "\n";
+	}
+	if (imageEXIF.GPano.hasPoseHeadingDegrees())
+		std::cout << "GPano.PoseHeadingDegrees " << imageEXIF.GPano.PoseHeadingDegrees << "\n";
 	if (imageEXIF.GPano.hasPosePitchDegrees())
 		std::cout << "GPano.PosePitchDegrees " << imageEXIF.GPano.PosePitchDegrees << "\n";
 	if (imageEXIF.GPano.hasPoseRollDegrees())
 		std::cout << "GPano.PoseRollDegrees " << imageEXIF.GPano.PoseRollDegrees << "\n";
+	if (imageEXIF.GPano.hasCroppedAreaImageWidthPixels())
+		std::cout << "GPano.CroppedAreaImageWidthPixels " << imageEXIF.GPano.CroppedAreaImageWidthPixels << "\n";
+	if (imageEXIF.GPano.hasCroppedAreaImageHeightPixels())
+		std::cout << "GPano.CroppedAreaImageHeightPixels " << imageEXIF.GPano.CroppedAreaImageHeightPixels << "\n";
+	if (imageEXIF.GPano.hasFullPanoWidthPixels())
+		std::cout << "GPano.FullPanoWidthPixels " << imageEXIF.GPano.FullPanoWidthPixels << "\n";
+	if (imageEXIF.GPano.hasFullPanoHeightPixels())
+		std::cout << "GPano.FullPanoHeightPixels " << imageEXIF.GPano.FullPanoHeightPixels << "\n";
+	if (imageEXIF.GPano.hasCroppedAreaLeftPixels())
+		std::cout << "GPano.CroppedAreaLeftPixels " << imageEXIF.GPano.CroppedAreaLeftPixels << "\n";
+	if (imageEXIF.GPano.hasCroppedAreaTopPixels())
+		std::cout << "GPano.CroppedAreaTopPixels " << imageEXIF.GPano.CroppedAreaTopPixels << "\n";
 	if (imageEXIF.Distortion.hasDewarpFlag())
 		std::cout << "Distortion.DewarpFlag " << imageEXIF.Distortion.DewarpFlag << "\n";
 	if (imageEXIF.Distortion.hasDistortion())

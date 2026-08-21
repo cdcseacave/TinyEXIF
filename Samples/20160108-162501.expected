@@ -32,3 +32,12 @@ LensInfo.FocalPlaneYResolution 0
 LensInfo.FocalPlaneResolutionUnit 0
 GeoLocation.GPSDOP 0
 GeoLocation.GPSDifferential 0
+GPano.ProjectionType equirectangular
+GPano.isEquirectangular true
+GPano.PoseHeadingDegrees 472.612
+GPano.CroppedAreaImageWidthPixels 10000
+GPano.CroppedAreaImageHeightPixels 5000
+GPano.FullPanoWidthPixels 10000
+GPano.FullPanoHeightPixels 5000
+GPano.CroppedAreaLeftPixels 0
+GPano.CroppedAreaTopPixels 0

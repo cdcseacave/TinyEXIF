@@ -1096,22 +1096,6 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		ResolutionUnit = (uint16_t)_ResolutionUnit;
 	}
 
-	// Try parsing the XMP content for projection type.
-	{
-	const tinyxml2::XMLElement* const element(document->FirstChildElement("GPano:ProjectionType"));
-	if (element != NULL) {
-		const char* const szProjectionType(element->GetText());
-		if (szProjectionType != NULL) {
-			if (0 == strcasecmp(szProjectionType, "perspective"))
-				ProjectionType = 1;
-			else
-			if (0 == strcasecmp(szProjectionType, "equirectangular") ||
-				0 == strcasecmp(szProjectionType, "spherical"))
-				ProjectionType = 2;
-		}
-	}
-	}
-
 	// Try parsing the XMP content for supported maker's info.
 	struct ParseXMP	{
 		// try yo fetch the value both from the attribute and child element
@@ -1209,8 +1193,26 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		ParseXMP::Value(document, "drone-parrot:CameraYawDegree", GeoLocation.YawDegree);
 		ParseXMP::Value(document, "Camera:AboveGroundAltitude", GeoLocation.RelativeAltitude);
 	}
+	// Try parsing the XMP content for spherical (GPano) metadata.
+	// GPano:ProjectionType is parsed once, into the raw spec string; the existing numeric
+	// ProjectionType is derived from it below instead of being parsed independently, so the
+	// two fields can never drift out of sync with each other.
+	if (ParseXMP::Value(document, "GPano:ProjectionType", GPano.ProjectionType)) {
+		if (0 == strcasecmp(GPano.ProjectionType.c_str(), "perspective"))
+			ProjectionType = 1;
+		else
+		if (GPano.isEquirectangular())
+			ProjectionType = 2;
+	}
+	ParseXMP::Value(document, "GPano:PoseHeadingDegrees", GPano.PoseHeadingDegrees);
 	ParseXMP::Value(document, "GPano:PosePitchDegrees", GPano.PosePitchDegrees);
 	ParseXMP::Value(document, "GPano:PoseRollDegrees", GPano.PoseRollDegrees);
+	ParseXMP::Value(document, "GPano:CroppedAreaImageWidthPixels", GPano.CroppedAreaImageWidthPixels);
+	ParseXMP::Value(document, "GPano:CroppedAreaImageHeightPixels", GPano.CroppedAreaImageHeightPixels);
+	ParseXMP::Value(document, "GPano:FullPanoWidthPixels", GPano.FullPanoWidthPixels);
+	ParseXMP::Value(document, "GPano:FullPanoHeightPixels", GPano.FullPanoHeightPixels);
+	ParseXMP::Value(document, "GPano:CroppedAreaLeftPixels", GPano.CroppedAreaLeftPixels);
+	ParseXMP::Value(document, "GPano:CroppedAreaTopPixels", GPano.CroppedAreaTopPixels);
 
 	// parse GCamera:MicroVideo
 	if (document->Attribute("GCamera:MicroVideo")) {
@@ -1289,6 +1291,39 @@ bool EXIFInfo::GPano_t::hasPosePitchDegrees() const {
 
 bool EXIFInfo::GPano_t::hasPoseRollDegrees() const {
 	return PoseRollDegrees != DBL_MAX;
+}
+
+bool EXIFInfo::GPano_t::hasPoseHeadingDegrees() const {
+	return PoseHeadingDegrees != DBL_MAX;
+}
+
+bool EXIFInfo::GPano_t::hasCroppedAreaImageWidthPixels() const {
+	return CroppedAreaImageWidthPixels != UINT32_MAX;
+}
+
+bool EXIFInfo::GPano_t::hasCroppedAreaImageHeightPixels() const {
+	return CroppedAreaImageHeightPixels != UINT32_MAX;
+}
+
+bool EXIFInfo::GPano_t::hasFullPanoWidthPixels() const {
+	return FullPanoWidthPixels != UINT32_MAX;
+}
+
+bool EXIFInfo::GPano_t::hasFullPanoHeightPixels() const {
+	return FullPanoHeightPixels != UINT32_MAX;
+}
+
+bool EXIFInfo::GPano_t::hasCroppedAreaLeftPixels() const {
+	return CroppedAreaLeftPixels != UINT32_MAX;
+}
+
+bool EXIFInfo::GPano_t::hasCroppedAreaTopPixels() const {
+	return CroppedAreaTopPixels != UINT32_MAX;
+}
+
+bool EXIFInfo::GPano_t::isEquirectangular() const {
+	return 0 == strcasecmp(ProjectionType.c_str(), "equirectangular") ||
+		0 == strcasecmp(ProjectionType.c_str(), "spherical");
 }
 
 void EXIFInfo::clear() {
@@ -1389,6 +1424,14 @@ void EXIFInfo::clear() {
 	// GPano
 	GPano.PosePitchDegrees = DBL_MAX;
 	GPano.PoseRollDegrees = DBL_MAX;
+	GPano.PoseHeadingDegrees = DBL_MAX;
+	GPano.ProjectionType = "";
+	GPano.CroppedAreaImageWidthPixels = UINT32_MAX;
+	GPano.CroppedAreaImageHeightPixels = UINT32_MAX;
+	GPano.FullPanoWidthPixels = UINT32_MAX;
+	GPano.FullPanoHeightPixels = UINT32_MAX;
+	GPano.CroppedAreaLeftPixels = UINT32_MAX;
+	GPano.CroppedAreaTopPixels = UINT32_MAX;
 
 	// Video metadata
 	MicroVideo.HasMicroVideo = 0;

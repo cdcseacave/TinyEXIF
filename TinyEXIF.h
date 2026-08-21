@@ -321,8 +321,24 @@ public:
 	struct TINYEXIF_LIB GPano_t {       // Spherical metadata. https://developers.google.com/streetview/spherical-metadata
 		double PosePitchDegrees;        // Pitch, measured in degrees above the horizon, for the center in the image. Value must be >= -90 and <= 90.
 		double PoseRollDegrees;         // Roll, measured in degrees, of the image where level with the horizon is 0. As roll increases, the horizon rotates counterclockwise in the image. Value must be > -180 and <= 180.
+		double PoseHeadingDegrees;      // Compass heading, measured in degrees, for the center in the image. Value must be >= 0 and < 360.
+		std::string ProjectionType;     // Type of image projection, e.g. "equirectangular" (raw spec string; see also EXIFInfo::ProjectionType for the derived numeric value)
+		uint32_t CroppedAreaImageWidthPixels;// Width of the image after cropping to the panoramic field-of-view
+		uint32_t CroppedAreaImageHeightPixels;// Height of the image after cropping to the panoramic field-of-view
+		uint32_t FullPanoWidthPixels;   // Width of the full panorama the cropped image represents (may exceed CroppedAreaImageWidthPixels)
+		uint32_t FullPanoHeightPixels;  // Height of the full panorama the cropped image represents (may exceed CroppedAreaImageHeightPixels)
+		uint32_t CroppedAreaLeftPixels; // Column where the left edge of the cropped image was cropped from the full panorama
+		uint32_t CroppedAreaTopPixels;  // Row where the top edge of the cropped image was cropped from the full panorama
 		bool hasPosePitchDegrees() const; // Return true if PosePitchDegrees is available
 		bool hasPoseRollDegrees() const; // Return true if PoseRollDegrees is available
+		bool hasPoseHeadingDegrees() const; // Return true if PoseHeadingDegrees is available
+		bool hasCroppedAreaImageWidthPixels() const; // Return true if CroppedAreaImageWidthPixels is available
+		bool hasCroppedAreaImageHeightPixels() const; // Return true if CroppedAreaImageHeightPixels is available
+		bool hasFullPanoWidthPixels() const; // Return true if FullPanoWidthPixels is available
+		bool hasFullPanoHeightPixels() const; // Return true if FullPanoHeightPixels is available
+		bool hasCroppedAreaLeftPixels() const; // Return true if CroppedAreaLeftPixels is available
+		bool hasCroppedAreaTopPixels() const; // Return true if CroppedAreaTopPixels is available
+		bool isEquirectangular() const; // Return true if ProjectionType is "equirectangular" or "spherical" (case-insensitive)
 	} GPano;
 	struct TINYEXIF_LIB MicroVideo_t {  // Google camera video file in metadata
 		uint32_t HasMicroVideo;         // not zero if exists
