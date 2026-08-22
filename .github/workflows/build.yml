@@ -40,6 +40,7 @@ jobs:
     name: "ASan+UBSan (ubuntu-latest)"
     runs-on: ubuntu-latest
     env:
+      VCPKG_COMMIT: '74e6536215718009aae747d86d84b78376bf9e09'
       # halt_on_error+exitcode=1 is what makes this job able to fail at all: without it,
       # a sanitizer prints its report to stderr and the process still exits 0.
       ASAN_OPTIONS: 'halt_on_error=1:exitcode=1'
@@ -47,13 +48,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: lukka/get-cmake@v3.28.4
-      - name: Install tinyxml2
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends libtinyxml2-dev
+      - uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
       - name: Configure with ASan+UBSan
         run: |
           cmake -S . -B build-sanitize \
+            -DCMAKE_TOOLCHAIN_FILE="$VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" \
             -DCMAKE_BUILD_TYPE=Debug \
             -DBUILD_SHARED_LIBS=OFF \
             -DBUILD_DEMO=ON \
