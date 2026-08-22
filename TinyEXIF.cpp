@@ -315,6 +315,12 @@ public:
 		bool intel)
 	{
 		std::string value;
+		// num_components is a raw attacker controlled count and FetchString() passes
+		// it through unchecked, so reject zero here rather than at the callers: below,
+		// num_components-1 is an unsigned expression that would wrap to 0xffffffff and
+		// index that far past value.data(), then resize() to 4GiB if the byte read is 0
+		if (num_components == 0)
+			return value;
 		if (num_components <= 4) {
 			value.resize(num_components);
 			char j = intel ? 0 : 24;
