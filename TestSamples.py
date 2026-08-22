@@ -117,12 +117,21 @@ def is_crash_exit(exit_code):
 
 def print_exiftool_cross_check(exiftool, sample_path):
 	"""Best-effort, informational only: not compared, not checked in."""
-	proc = subprocess.run(
-		[exiftool, '-n', '-s', '-G', sample_path],
-		stdout=subprocess.PIPE,
-		stderr=subprocess.STDOUT,
-	)
 	print("--- exiftool cross-check for {} (informational only, not compared) ---".format(sample_path))
+	try:
+		proc = subprocess.run(
+			[exiftool, '-n', '-s', '-G', sample_path],
+			stdout=subprocess.PIPE,
+			stderr=subprocess.STDOUT,
+			timeout=DEMO_TIMEOUT_SECONDS,
+		)
+	except subprocess.TimeoutExpired:
+		# This fires on a mismatch, i.e. on the samples most likely to be hostile --
+		# the same crafted files the fuzzer produced. An informational extra must not
+		# be able to stall the run until the CI job limit.
+		print("exiftool did not finish within {}s; skipping the cross-check".format(
+			DEMO_TIMEOUT_SECONDS))
+		return
 	sys.stdout.write(proc.stdout.decode('utf-8', errors='replace'))
 
 
