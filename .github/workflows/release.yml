@@ -1,0 +1,57 @@
+name: release
+on:
+  push:
+    # Repo tags are bare "major.minor.patch" (e.g. "1.0.4"), no "v" prefix --
+    # see `git tag --list`. Match that instead of assuming a "v*" pattern.
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    # Gates the release on a successful build for this exact tag. This
+    # duplicates one configuration from build.yml's matrix rather than
+    # depending on that separate workflow's own (also tag-triggered) run,
+    # which would need workflow_run chaining to correlate the right run
+    # with this tag -- real added complexity for a library this size.
+    name: "Build gate (ubuntu-latest, BUILD_SHARED_LIBS=OFF)"
+    env:
+      VCPKG_COMMIT: '74e6536215718009aae747d86d84b78376bf9e09'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lukka/get-cmake@v3.28.4
+      - uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
+      - name: Build with -DBUILD_SHARED_LIBS=OFF
+        uses: lukka/run-cmake@v10
+        with:
+          configurePreset: "vcpkg"
+          configurePresetAdditionalArgs: "[
+            '-DBUILD_SHARED_LIBS=OFF',
+            '-DBUILD_DEMO=ON'
+          ]"
+          buildPreset: "vcpkg"
+          buildPresetAdditionalArgs: "[ '--config Release' ]"
+
+  release:
+    name: "Create GitHub Release"
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract this tag's CHANGELOG.md section
+        run: |
+          awk -v tag="${GITHUB_REF_NAME}" '
+            $0 ~ "^## \\[" tag "\\]" { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release_notes.md
+      - name: Create release
+        uses: softprops/action-gh-release@v3.0.2
+        with:
+          name: "TinyEXIF ${{ github.ref_name }}"
+          body_path: release_notes.md
