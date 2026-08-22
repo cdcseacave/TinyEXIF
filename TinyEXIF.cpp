@@ -637,14 +637,17 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 
 	case 0x9201:
 		// Shutter speed value
-		SetFieldIf(FIELD_ID_ShutterSpeedValue, parser.Fetch(ShutterSpeedValue));
-		ShutterSpeedValue = 1.0/exp(ShutterSpeedValue*log(2));
+		// the APEX to seconds conversion only runs on a value that was really
+		// fetched: applied to the untouched 0 it would yield a plausible 1s
+		if (SetFieldIf(FIELD_ID_ShutterSpeedValue, parser.Fetch(ShutterSpeedValue)))
+			ShutterSpeedValue = 1.0/exp(ShutterSpeedValue*log(2));
 		break;
 
 	case 0x9202:
 		// Aperture value
-		SetFieldIf(FIELD_ID_ApertureValue, parser.Fetch(ApertureValue));
-		ApertureValue = exp(ApertureValue*log(2)*0.5);
+		// as above: the untouched 0 would convert to a plausible f/1
+		if (SetFieldIf(FIELD_ID_ApertureValue, parser.Fetch(ApertureValue)))
+			ApertureValue = exp(ApertureValue*log(2)*0.5);
 		break;
 
 	case 0x9203:
