@@ -1159,7 +1159,7 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	if (!parser.InBounds(offs, 2))
 		return PARSE_CORRUPT_DATA;
 	unsigned num_entries = EntryParser::parse16(buf + offs, alignIntel);
-	if (!parser.InBounds(offs + 2, 12 * num_entries))
+	if (!parser.InBounds((uint64_t)offs + 2, 12 * num_entries))
 		return PARSE_CORRUPT_DATA;
 	uint64_t exif_sub_ifd_offset = len;
 	uint64_t gps_sub_ifd_offset  = len;
@@ -1177,7 +1177,7 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	if (parser.InBounds(exif_sub_ifd_offset, 4)) {
 		offs = (unsigned)exif_sub_ifd_offset;
 		num_entries = EntryParser::parse16(buf + offs, alignIntel);
-		if (!parser.InBounds(offs + 2, 12 * num_entries))
+		if (!parser.InBounds((uint64_t)offs + 2, 12 * num_entries))
 			return PARSE_CORRUPT_DATA;
 		parser.Init(offs+2);
 		while (num_entries-- > 0) {
@@ -1192,7 +1192,7 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	if (parser.InBounds(gps_sub_ifd_offset, 4)) {
 		offs = (unsigned)gps_sub_ifd_offset;
 		num_entries = EntryParser::parse16(buf + offs, alignIntel);
-		if (!parser.InBounds(offs + 2, 12 * num_entries))
+		if (!parser.InBounds((uint64_t)offs + 2, 12 * num_entries))
 			return PARSE_CORRUPT_DATA;
 		parser.Init(offs+2);
 		while (num_entries-- > 0) {
