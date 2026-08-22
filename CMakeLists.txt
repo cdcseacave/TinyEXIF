@@ -71,6 +71,9 @@ set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -DDEBUG")
 option(BUILD_SHARED_LIBS "build as shared library" ON)
 option(LINK_CRT_STATIC_LIBS "link CRT static library" OFF)
 option(BUILD_DEMO "build demo binary" ON)
+# Off by default: only meant for local/CI fuzzing, and only buildable with a
+# compiler that supports -fsanitize=fuzzer (Clang). See fuzz/README.md.
+option(BUILD_FUZZER "build the libFuzzer target for EXIFInfo::parseFrom (requires Clang)" OFF)
 
 # Set MSVC runtime library globally so all targets use consistent /MT or /MD.
 # This avoids LNK2038 mismatches between targets compiled with different CRT variants.
@@ -106,6 +109,19 @@ if(BUILD_DEMO)
 	add_executable(TinyEXIFdemo main.cpp)
 	set_target_properties(TinyEXIFdemo PROPERTIES MSVC_RUNTIME_LIBRARY "${CMAKE_MSVC_RUNTIME_LIBRARY}")
 	target_link_libraries(TinyEXIFdemo TinyEXIF)
+endif()
+
+if(BUILD_FUZZER)
+	# -fsanitize=fuzzer is a Clang feature (both upstream Clang and AppleClang);
+	# fail clearly here instead of letting an unrelated flags/link error surface
+	# on MSVC or GCC for an option nobody asked the default build to enable.
+	if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+		message(FATAL_ERROR "BUILD_FUZZER requires Clang (needs -fsanitize=fuzzer support); CMAKE_CXX_COMPILER_ID is '${CMAKE_CXX_COMPILER_ID}'")
+	endif()
+	add_executable(TinyEXIFfuzzer fuzz/fuzz_exif.cpp)
+	target_link_libraries(TinyEXIFfuzzer TinyEXIF)
+	target_compile_options(TinyEXIFfuzzer PRIVATE -fsanitize=fuzzer)
+	target_link_options(TinyEXIFfuzzer PRIVATE -fsanitize=fuzzer)
 endif()
 
 ################################

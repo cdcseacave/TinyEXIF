@@ -36,3 +36,35 @@ jobs:
           buildPreset: "vcpkg"
           buildPresetAdditionalArgs: "[ '--config Release' ]"
 
+  sanitize:
+    name: "ASan+UBSan (ubuntu-latest)"
+    runs-on: ubuntu-latest
+    env:
+      # halt_on_error+exitcode=1 is what makes this job able to fail at all: without it,
+      # a sanitizer prints its report to stderr and the process still exits 0.
+      ASAN_OPTIONS: 'halt_on_error=1:exitcode=1'
+      UBSAN_OPTIONS: 'halt_on_error=1:exitcode=1:print_stacktrace=1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lukka/get-cmake@v3.28.4
+      - name: Install tinyxml2
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libtinyxml2-dev
+      - name: Configure with ASan+UBSan
+        run: |
+          cmake -S . -B build-sanitize \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_DEMO=ON \
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g -O1" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+      - name: Build
+        run: cmake --build build-sanitize -j2
+      - name: Run the corpus regression runner under ASan+UBSan
+        # This runs the demo across every file under Samples/ (including Samples/fuzz/'s
+        # crafted regression inputs) and compares output against the checked-in baselines,
+        # so it gates output regressions AND sanitizer findings in one step: a clean sample
+        # that trips ASan/UBSan gets killed with exit 1 before printing its normal output,
+        # which is itself a baseline mismatch.
+        run: python3 TestSamples.py --binary build-sanitize/TinyEXIFdemo
