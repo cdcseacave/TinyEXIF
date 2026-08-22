@@ -679,9 +679,15 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 	case 0x9214:
 		// Subject area
 		if (parser.IsShort() && parser.GetLength() > 1) {
-			SubjectArea.resize(parser.GetLength());
-			for (uint32_t i=0; i<parser.GetLength(); ++i)
-				SetFieldIf(FIELD_ID_SubjectArea, parser.Fetch(SubjectArea[i], i));
+			// GetLength() is an attacker-controlled count; validate the whole array
+			// fits the buffer before sizing the vector to match it, rather than
+			// resizing first and relying on the per-element Fetch() bounds check
+			const uint64_t dataSize = (uint64_t)parser.GetLength()*2;
+			if (dataSize <= UINT32_MAX && parser.InBounds(parser.GetSubIFD(), (uint32_t)dataSize)) {
+				SubjectArea.resize(parser.GetLength());
+				for (uint32_t i=0; i<parser.GetLength(); ++i)
+					SetFieldIf(FIELD_ID_SubjectArea, parser.Fetch(SubjectArea[i], i));
+			}
 		}
 		break;
 
