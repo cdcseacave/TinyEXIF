@@ -124,6 +124,12 @@ if(BUILD_FUZZER)
 	if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 		message(FATAL_ERROR "BUILD_FUZZER requires Clang (needs -fsanitize=fuzzer support); CMAKE_CXX_COMPILER_ID is '${CMAKE_CXX_COMPILER_ID}'")
 	endif()
+	# The library itself must carry SanitizerCoverage instrumentation, otherwise
+	# libFuzzer sees coverage from the harness only and gets no feedback from the
+	# parser it is actually fuzzing -- it degenerates into blind seed mutation.
+	# -fsanitize=fuzzer-no-link inserts the coverage callbacks without pulling in
+	# libFuzzer's main(), which belongs to the fuzzer executable alone.
+	target_compile_options(TinyEXIF PRIVATE -fsanitize=fuzzer-no-link)
 	add_executable(TinyEXIFfuzzer fuzz/fuzz_exif.cpp)
 	target_link_libraries(TinyEXIFfuzzer TinyEXIF)
 	target_compile_options(TinyEXIFfuzzer PRIVATE -fsanitize=fuzzer)
