@@ -1,10 +1,21 @@
-TinyEXIF began as a fork of the easyexif library
+TinyEXIF began in 2013 as a fork of the easyexif library
 (https://github.com/mayanklahiri/easyexif) by Mayank Lahiri, which was
 released under the BSD-2-Clause license below. Portions of TinyEXIF still
 derive from that code and remain additionally subject to these terms; see
 LICENSE for the MIT terms covering TinyEXIF's own contributions.
 
-The following is easyexif's license notice, reproduced verbatim:
+The following is easyexif's license notice, reproduced verbatim as published
+upstream at https://github.com/mayanklahiri/easyexif/blob/master/LICENSE
+(retrieved 2026-08-22).
+
+Note on the copyright years: the range below is upstream's own, taken from
+that current LICENSE file. It has not been reconciled against the 2013 state
+of easyexif that TinyEXIF forked, and upstream's own exif.h carries a
+different range ("2010-2016"). It is reproduced here exactly as published
+rather than adjusted, on the principle that restating someone else's
+copyright notice with edited dates is worse than quoting it as it stands.
+If Mayank Lahiri would prefer a different range or wording, that preference
+governs and this file should be updated to match.
 
 Copyright (c) 2010-2015 Mayank Lahiri
 mlahiri@gmail.com
