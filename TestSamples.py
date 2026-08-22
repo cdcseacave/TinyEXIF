@@ -181,7 +181,10 @@ def main(argv):
 					sample_path, exit_code))
 				crashed.append(sample_path)
 				continue
-			with open(baseline_path, 'w') as fh:
+			# Baselines hold the demo's UTF-8 output verbatim (Samples/VRAexample012
+			# carries a copyright sign), and must not pick up the locale's encoding or
+			# CRLF translation on Windows.
+			with open(baseline_path, 'w', encoding='utf-8', newline='\n') as fh:
 				fh.write(render_baseline(exit_code, output))
 			print("updated " + baseline_path)
 		if timed_out:
@@ -203,7 +206,7 @@ def main(argv):
 			mismatches += 1
 			continue
 
-		with open(baseline_path, 'r') as fh:
+		with open(baseline_path, 'r', encoding='utf-8', newline='\n') as fh:
 			expected = fh.read()
 
 		if actual != expected:
