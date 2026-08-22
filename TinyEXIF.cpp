@@ -1289,7 +1289,21 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		// the range check is meaningful where unsigned long is only 32 bits wide.
 		// note UINT32_MAX doubles as the "absent" sentinel of seven fields fed from here -
 		// Distortion.DewarpFlag and the six GPano pixel counts - so for those a saturated
-		// value reads back as absent through their hasXxx(); fail-safe, but not distinguishable
+		// value reads back as absent through their hasXxx(); fail-safe, but not distinguishable.
+		//
+		// The double overload above has the same collision with its own sentinel: strtod
+		// parses "1.7976931348623157e308" to exactly DBL_MAX, which clear() uses to mean
+		// absent, so an XMP file carrying that literal sets the field and still reads back
+		// as absent through hasAltitude(), hasRelativeAltitude(), hasOrientation() (Roll,
+		// Pitch and Yaw), hasPosePitchDegrees(), hasPoseRollDegrees() and
+		// hasPoseHeadingDegrees() - every DBL_MAX-sentinelled accessor this path can feed;
+		// hasLatLon() and hasSpeed() also use DBL_MAX but are fed from EXIF rationals and
+		// floats, neither of which can produce it. HasField()/GetFields() report it present,
+		// so the two presence APIs disagree on this one input. The sentinels are part of
+		// the public contract of those accessors and cannot be changed without breaking
+		// every existing caller, so this is documented rather than fixed; HasField() is
+		// the accurate answer where the two differ. Both collisions need a value at the
+		// very edge of the type to trigger and both fail towards "absent".
 		static bool Value(const tinyxml2::XMLElement* document, const char* name, uint32_t& value) {
 			const char* szAttribute = document->Attribute(name);
 			if (szAttribute == NULL) {
@@ -1297,10 +1311,20 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 				if (element == NULL || (szAttribute = element->GetText()) == NULL)
 					return false;
 			}
+			// strtoull negates a negative input rather than rejecting it, so "-1" would
+			// come back as ULLONG_MAX and saturate onto the UINT32_MAX absence sentinel;
+			// a pixel count or a flag is never negative, so reject the sign outright
+			const char* szValue(szAttribute);
+			while (isspace((unsigned char)*szValue))
+				++szValue;
+			if (*szValue == '-')
+				return false;
 			char* szEnd(NULL);
 			errno = 0;
-			const unsigned long long ullValue(strtoull(szAttribute, &szEnd, 0));
-			if (szEnd == szAttribute)
+			// base 10, not 0: these are decimal XMP integers, not C literals, so neither
+			// a 0x prefix nor a leading zero should change how they are read
+			const unsigned long long ullValue(strtoull(szValue, &szEnd, 10));
+			if (szEnd == szValue)
 				return false;
 			value = (errno == ERANGE || ullValue > UINT32_MAX ? UINT32_MAX : (uint32_t)ullValue);
 			return true;
