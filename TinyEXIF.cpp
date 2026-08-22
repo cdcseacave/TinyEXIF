@@ -894,16 +894,17 @@ void EXIFInfo::parseIFDGPS(EntryParser& parser) {
 	case 7:
 		// GPS timestamp
 		if (parser.IsRational() && parser.GetLength() == 3) {
-			double h,m,s;
-			parser.Fetch(h, 0);
-			parser.Fetch(m, 1);
-			parser.Fetch(s, 2);
-			char buffer[256];
-			snprintf(buffer, 256, "%g %g %g", h, m, s);
-			GeoLocation.GPSTimeStamp = buffer;
-			// the string is composed and stored whatever the three fetches returned,
-			// so the field is marked here, where it is written, and not at them
-			SetField(FIELD_ID_GeoLocation_GPSTimeStamp);
+			// Fetch() leaves its out-parameter untouched when the bounds check
+			// rejects the offset, so the three are initialized and all three must
+			// succeed: hour, minute and second are one logical value and a partial
+			// timestamp is not a timestamp
+			double h(0), m(0), s(0);
+			if (parser.Fetch(h, 0) && parser.Fetch(m, 1) && parser.Fetch(s, 2)) {
+				char buffer[256];
+				snprintf(buffer, 256, "%g %g %g", h, m, s);
+				GeoLocation.GPSTimeStamp = buffer;
+				SetField(FIELD_ID_GeoLocation_GPSTimeStamp);
+			}
 		}
 		break;
 
