@@ -56,8 +56,7 @@ this project uses [Semantic Versioning](https://semver.org/).
 - Bounds-checked every attacker-controlled buffer read reachable through
   `EntryParser::Fetch`, `ParseTag()`, MakerNote parsing, and the EXIF
   segment offset walk, closing a reported crash in `Fetch(double&)`, which
-  previously had no bounds check at all. Reported by **doopal** (handle
-  only — see note below).
+  previously had no bounds check at all. Reported by **doopal**.
 - Fixed an unbounded allocation from an attacker-controlled `SubjectArea`
   component count: a single crafted 12-byte IFD entry could drive a
   multi-gigabyte `std::vector::resize()` from a file a few dozen bytes
@@ -67,10 +66,6 @@ this project uses [Semantic Versioning](https://semver.org/).
 - Fixed an integer overflow in the `parseString` bounds check that could
   pass validation on an attacker-controlled offset near `UINT32_MAX`. (#26,
   fixes #16)
-
-> The "doopal" credit above uses the handle only, per the reporter's
-> apparent preference — no email address is published here. The maintainer
-> should confirm how they'd like to be credited before this entry ships.
 
 ## [1.0.4] - 2025-11-17
 
