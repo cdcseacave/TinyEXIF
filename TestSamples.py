@@ -85,6 +85,15 @@ def render_baseline(exit_code, output):
 	return "exit_code: {}\n{}".format(exit_code, output)
 
 
+def is_crash_exit(exit_code):
+	"""True if exit_code says the demo died on a signal rather than exiting normally.
+
+	subprocess reports a POSIX signal death as a negative code; shells and CI runners
+	surface the same event as 128+signum, so both forms are treated as a crash.
+	"""
+	return isinstance(exit_code, int) and (exit_code < 0 or exit_code >= 128)
+
+
 def print_exiftool_cross_check(exiftool, sample_path):
 	"""Best-effort, informational only: not compared, not checked in."""
 	proc = subprocess.run(
@@ -124,6 +133,7 @@ def main(argv):
 
 	if args.update:
 		timed_out = []
+		crashed = []
 		for sample_path, baseline_path in samples:
 			exit_code, output = run_demo(binary, sample_path)
 			if exit_code == TIMEOUT_MARKER:
@@ -133,11 +143,22 @@ def main(argv):
 					sample_path, DEMO_TIMEOUT_SECONDS))
 				timed_out.append(sample_path)
 				continue
+			if is_crash_exit(exit_code):
+				# Same reasoning as the timeout guard above: a signal death is a bug, and
+				# writing it out would make the crash permanently "expected" -- the corpus
+				# gate would then go green on a segfault forever.
+				print("CRASH: {} died with exit code {}; not writing a baseline for it".format(
+					sample_path, exit_code))
+				crashed.append(sample_path)
+				continue
 			with open(baseline_path, 'w') as fh:
 				fh.write(render_baseline(exit_code, output))
 			print("updated " + baseline_path)
 		if timed_out:
 			print("update aborted: {} sample(s) timed out, see above".format(len(timed_out)))
+		if crashed:
+			print("update aborted: {} sample(s) crashed, see above".format(len(crashed)))
+		if timed_out or crashed:
 			return 1
 		print("updated {} baseline(s)".format(len(samples)))
 		return 0
