@@ -21,11 +21,15 @@ this project uses [Semantic Versioning](https://semver.org/).
 - `GPano_t` extended with the rest of the Google spherical-metadata field
   set: `PoseHeadingDegrees`, `ProjectionType`, the four cropped/full pano
   pixel dimensions, `CroppedAreaLeftPixels`, `CroppedAreaTopPixels`, and
-  `isEquirectangular()`.
+  `isEquirectangular()`. Based on the approach in PR #27 by @simfeo,
+  reimplemented here with the full field set and corpus fixtures.
 - `GCamera:MotionPhoto` parsing into new `HasMotionPhoto`, `MotionPhotoLength`
   and `MotionPhotoMime` fields, kept separate from the pre-existing
   `MicroVideoOffset` since the two are not interchangeable; the container is
-  only walked when the file actually declares one.
+  only walked when the file actually declares one. Based on PR #27 by
+  @simfeo, reworked to keep the new fields separate from the pre-existing
+  `MicroVideoOffset` and to walk the container only when the file declares
+  one.
 - `TINYEXIF_VERSION_STRING` / `TINYEXIF_VERSION` macros, derived from the
   major/minor/patch macros, for downstream feature-gating.
 - A libFuzzer target (`BUILD_FUZZER`, Clang-only), an ASan+UBSan CI job
