@@ -6,9 +6,6 @@ on:
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'
 
-permissions:
-  contents: write
-
 jobs:
   build:
     # Gates the release on a successful build for this exact tag. This
@@ -41,15 +38,27 @@ jobs:
     name: "Create GitHub Release"
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - name: Extract this tag's CHANGELOG.md section
         run: |
+          # Accepts either the released heading form ("## [<tag>] - <date>")
+          # or the transitional pre-release form ("## [Unreleased] - <tag>"),
+          # so a tag pushed before the CHANGELOG heading is renamed still
+          # produces real notes instead of an empty release body. See the
+          # release-procedure note near the top of CHANGELOG.md.
           awk -v tag="${GITHUB_REF_NAME}" '
             $0 ~ "^## \\[" tag "\\]" { found=1; next }
+            $0 ~ "^## \\[Unreleased\\] - " tag "$" { found=1; next }
             found && /^## \[/ { exit }
             found { print }
           ' CHANGELOG.md > release_notes.md
+          if ! grep -q '[^[:space:]]' release_notes.md; then
+            echo "::error::No CHANGELOG.md section found for tag '${GITHUB_REF_NAME}'. Looked for heading '## [${GITHUB_REF_NAME}]' or '## [Unreleased] - ${GITHUB_REF_NAME}'." >&2
+            exit 1
+          fi
       - name: Create release
         uses: softprops/action-gh-release@v3.0.2
         with:

@@ -5,6 +5,12 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/);
 this project uses [Semantic Versioning](https://semver.org/).
 
+<!-- Release procedure: rename the heading below from "## [Unreleased] - <version>"
+     to "## [<version>] - <YYYY-MM-DD>", commit that rename, then push the tag.
+     (release.yml's notes extractor also accepts the current "## [Unreleased] -
+     <version>" form as a transitional fallback, so a tag pushed before the
+     rename still works -- but renaming first keeps this file accurate.) -->
+
 ## [Unreleased] - 1.1.0
 
 ### Added
