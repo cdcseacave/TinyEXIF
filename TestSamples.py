@@ -61,6 +61,27 @@ def find_samples(samples_dir):
 			yield fullpath, baseline_path
 
 
+def find_orphan_baselines(samples_dir, samples):
+	"""Yield every baseline under samples_dir that no sample in `samples` claims.
+
+	find_samples() enumerates samples and derives the baseline path from them, so a
+	baseline whose sample was deleted or renamed is never looked at: the run just
+	reports a smaller sample count and still succeeds. Rather than re-deriving the
+	sample name from the baseline -- a second derivation that could drift from the
+	first -- this compares against the exact baseline paths find_samples() produced,
+	so the two directions cannot disagree.
+	"""
+	claimed = set(baseline_path for _, baseline_path in samples)
+	for root, dirs, filenames in os.walk(samples_dir):
+		dirs.sort()
+		for f in sorted(filenames):
+			if os.path.splitext(f)[1].lower() != BASELINE_EXT:
+				continue
+			baseline_path = os.path.join(root, f)
+			if baseline_path not in claimed:
+				yield baseline_path
+
+
 def run_demo(binary, sample_path, timeout=DEMO_TIMEOUT_SECONDS):
 	"""Run the demo synchronously and return (exit_code, combined stdout+stderr text).
 
@@ -191,6 +212,12 @@ def main(argv):
 			sys.stdout.writelines(diff)
 			if exiftool:
 				print_exiftool_cross_check(exiftool, sample_path)
+
+	for baseline_path in find_orphan_baselines(args.samples, samples):
+		# The corpus shrank: a checked-in baseline has lost its sample. Counted as a
+		# mismatch so the gate fails instead of quietly testing fewer files.
+		print("ORPHAN BASELINE: {} (no matching {} sample)".format(baseline_path, SAMPLE_EXT))
+		mismatches += 1
 
 	print("{} samples, {} mismatches".format(len(samples), mismatches))
 	return 1 if mismatches else 0
