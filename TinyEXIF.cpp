@@ -1372,7 +1372,21 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 			std::stringstream ss(dewarpData.substr(pos + 1));
 			std::string item;
 			while (std::getline(ss, item, ',')) {
-				distortionParams.push_back(std::stod(item));
+				// strtod, not std::stod: dewarpData is attacker controlled XMP text and
+				// std::stod throws on a non-numeric or an out-of-range item, an exception
+				// nothing between here and parseFrom() catches - it would abort the
+				// process instead of returning one of the documented error codes
+				const char* const szItem(item.c_str());
+				char* szEnd(NULL);
+				errno = 0;
+				const double value(strtod(szItem, &szEnd));
+				if (szEnd == szItem || errno == ERANGE) {
+					// one malformed item invalidates the whole list, so that the
+					// distortion fields stay absent instead of half populated
+					distortionParams.clear();
+					break;
+				}
+				distortionParams.push_back(value);
 			}
 		}
 		// The DewarpData string has the following format:
