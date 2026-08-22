@@ -6,25 +6,31 @@ cmake_minimum_required(VERSION 3.15)
 # TinyEXIF.h must stay self-contained since it is vendored directly by
 # some consumers, so the version lives there and is read back out here
 # rather than the header including a CMake-generated file.
+#
+# The three regexes below are anchored to the start of a line -- CMake's
+# REGEX MATCH returns the first match anywhere in the file, so an unanchored
+# pattern is satisfied by any mention of the macro in a comment or an #if 0
+# block and reports a version the compiler never sees. The captured digits
+# are therefore CMAKE_MATCH_2, after the leading-newline group.
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/TinyEXIF.h" _tinyexif_h_content)
 
-string(REGEX MATCH "#define[ \t]+TINYEXIF_MAJOR_VERSION[ \t]+([0-9]+)" _tinyexif_major_match "${_tinyexif_h_content}")
+string(REGEX MATCH "(^|\n)[ \t]*#define[ \t]+TINYEXIF_MAJOR_VERSION[ \t]+([0-9]+)" _tinyexif_major_match "${_tinyexif_h_content}")
 if(NOT _tinyexif_major_match)
 	message(FATAL_ERROR "TinyEXIF.h: could not find '#define TINYEXIF_MAJOR_VERSION <n>'")
 endif()
-set(_tinyexif_major "${CMAKE_MATCH_1}")
+set(_tinyexif_major "${CMAKE_MATCH_2}")
 
-string(REGEX MATCH "#define[ \t]+TINYEXIF_MINOR_VERSION[ \t]+([0-9]+)" _tinyexif_minor_match "${_tinyexif_h_content}")
+string(REGEX MATCH "(^|\n)[ \t]*#define[ \t]+TINYEXIF_MINOR_VERSION[ \t]+([0-9]+)" _tinyexif_minor_match "${_tinyexif_h_content}")
 if(NOT _tinyexif_minor_match)
 	message(FATAL_ERROR "TinyEXIF.h: could not find '#define TINYEXIF_MINOR_VERSION <n>'")
 endif()
-set(_tinyexif_minor "${CMAKE_MATCH_1}")
+set(_tinyexif_minor "${CMAKE_MATCH_2}")
 
-string(REGEX MATCH "#define[ \t]+TINYEXIF_PATCH_VERSION[ \t]+([0-9]+)" _tinyexif_patch_match "${_tinyexif_h_content}")
+string(REGEX MATCH "(^|\n)[ \t]*#define[ \t]+TINYEXIF_PATCH_VERSION[ \t]+([0-9]+)" _tinyexif_patch_match "${_tinyexif_h_content}")
 if(NOT _tinyexif_patch_match)
 	message(FATAL_ERROR "TinyEXIF.h: could not find '#define TINYEXIF_PATCH_VERSION <n>'")
 endif()
-set(_tinyexif_patch "${CMAKE_MATCH_1}")
+set(_tinyexif_patch "${CMAKE_MATCH_2}")
 
 set(TinyEXIF_VERSION "${_tinyexif_major}.${_tinyexif_minor}.${_tinyexif_patch}")
 
