@@ -3,6 +3,12 @@ on:
   - push
   - pull_request
 
+# Without this the jobs below inherit the repository's default token, which on
+# many repos is still read/write. They run third-party actions and only need to
+# read the checkout.
+permissions:
+  contents: read
+
 jobs:
   build:
     env:

@@ -6,6 +6,12 @@ on:
     tags:
       - '[0-9]+.[0-9]+.[0-9]+'
 
+# Read-only by default so the build gate, which runs third-party actions, does
+# not inherit the repository's default token. The release job below re-grants
+# itself contents: write, which it needs to publish the release.
+permissions:
+  contents: read
+
 jobs:
   build:
     # Gates the release on a successful build for this exact tag. This
