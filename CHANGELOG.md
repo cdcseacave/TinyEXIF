@@ -46,18 +46,16 @@ this project uses [Semantic Versioning](https://semver.org/).
   `version-string` disagrees, fixing drift between the two (the header read
   1.0.3 while CMake/vcpkg.json read 1.0.4).
 
-### Fixed
-- Unbounded allocation from an attacker-controlled `SubjectArea` component
-  count: a single crafted 12-byte IFD entry could drive a multi-gigabyte
-  `std::vector::resize()` from a file a few dozen bytes long. Found by this
-  project's own new fuzzer.
-
 ### Security
 - Bounds-checked every attacker-controlled buffer read reachable through
   `EntryParser::Fetch`, `ParseTag()`, MakerNote parsing, and the EXIF
   segment offset walk, closing a reported crash in `Fetch(double&)`, which
   previously had no bounds check at all. Reported by **doopal** (handle
   only — see note below).
+- Fixed an unbounded allocation from an attacker-controlled `SubjectArea`
+  component count: a single crafted 12-byte IFD entry could drive a
+  multi-gigabyte `std::vector::resize()` from a file a few dozen bytes
+  long. Found by this project's own new fuzzer.
 - Fixed a heap buffer overflow in `EntryParser::Fetch` methods reachable via
   a crafted `SubjectArea` length. (#25, fixes #24)
 - Fixed an integer overflow in the `parseString` bounds check that could
