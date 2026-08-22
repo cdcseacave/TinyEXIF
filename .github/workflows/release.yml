@@ -91,13 +91,15 @@ jobs:
           # produces real notes instead of an empty release body. See the
           # release-procedure note near the top of CHANGELOG.md.
           awk -v tag="${GITHUB_REF_NAME}" '
+            # tag is interpolated into a regex, so its dots must be literal.
+            BEGIN { gsub(/\./, "\\.", tag) }
             $0 ~ "^## \\[" tag "\\]" { found=1; next }
             $0 ~ "^## \\[Unreleased\\] - " tag "$" { found=1; next }
             found && /^## \[/ { exit }
             found { print }
           ' CHANGELOG.md > release_notes.md
           if ! grep -q '[^[:space:]]' release_notes.md; then
-            echo "::error::No CHANGELOG.md section found for tag '${GITHUB_REF_NAME}'. Looked for heading '## [${GITHUB_REF_NAME}]' or '## [Unreleased] - ${GITHUB_REF_NAME}'." >&2
+            echo "::error::No CHANGELOG.md section found for tag '${GITHUB_REF_NAME}'. Looked for heading '## [${GITHUB_REF_NAME}]' or '## [Unreleased] - ${GITHUB_REF_NAME}'."
             exit 1
           fi
       - name: Create release
