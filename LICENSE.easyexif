@@ -1,0 +1,42 @@
+TinyEXIF began in 2013 as a fork of the easyexif library
+(https://github.com/mayanklahiri/easyexif) by Mayank Lahiri, which was
+released under the BSD-2-Clause license below. Portions of TinyEXIF still
+derive from that code and remain additionally subject to these terms; see
+LICENSE for the MIT terms covering TinyEXIF's own contributions.
+
+The following is easyexif's license notice, reproduced verbatim as published
+upstream at https://github.com/mayanklahiri/easyexif/blob/master/LICENSE
+(retrieved 2026-08-22).
+
+Note on the copyright years: the range below is upstream's own, taken from
+that current LICENSE file. It has not been reconciled against the 2013 state
+of easyexif that TinyEXIF forked, and upstream's own exif.h carries a
+different range ("2010-2016"). It is reproduced here exactly as published
+rather than adjusted, on the principle that restating someone else's
+copyright notice with edited dates is worse than quoting it as it stands.
+If Mayank Lahiri would prefer a different range or wording, that preference
+governs and this file should be updated to match.
+
+Copyright (c) 2010-2015 Mayank Lahiri
+mlahiri@gmail.com
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+ - Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+ - Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS ``AS IS'' AND ANY EXPRESS
+OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES
+OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN
+NO EVENT SHALL THE FREEBSD PROJECT OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT,
+INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
+BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE,
+DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY
+OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
+EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.

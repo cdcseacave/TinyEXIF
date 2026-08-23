@@ -7,12 +7,24 @@
 #include <iostream> // std::cout
 #include <fstream>  // std::ifstream
 #include <vector>   // std::vector
+#include <string>   // std::string
 #include <iomanip>  // std::setprecision
+
+// Compile-time check that TINYEXIF_VERSION works as documented in TinyEXIF.h:
+// fail the build with a clear message rather than a confusing downstream
+// error if this demo is ever paired with a pre-1.1.0 header.
+#if TINYEXIF_VERSION < 10100
+#error "This demo requires TinyEXIF.h 1.1.0 or later"
+#endif
+static_assert(sizeof(TINYEXIF_VERSION_STRING) > 1, "TINYEXIF_VERSION_STRING must be a non-empty string literal");
 
 int main(int argc, const char** argv)
 {
-	if (argc != 2) {
-		std::cout << "Usage: TinyEXIF <image_file>\n";
+	// the field list is optional so that the output above stays the same for
+	// everything that already parses it
+	const bool listFields(argc == 3 && std::string(argv[2]) == "--fields");
+	if (!listFields && argc != 2) {
+		std::cout << "Usage: TinyEXIF <image_file> [--fields]\n";
 		return -1;
 	}
 
@@ -126,15 +138,56 @@ int main(int argc, const char** argv)
 		std::cout << "GeoLocation.GPSTimeStamp " << imageEXIF.GeoLocation.GPSTimeStamp << "\n";
 	if (!imageEXIF.GeoLocation.GPSDateStamp.empty())
 		std::cout << "GeoLocation.GPSDateStamp " << imageEXIF.GeoLocation.GPSDateStamp << "\n";
+	if (!imageEXIF.GPano.ProjectionType.empty()) {
+		std::cout << "GPano.ProjectionType " << imageEXIF.GPano.ProjectionType << "\n";
+		std::cout << "GPano.isEquirectangular " << (imageEXIF.GPano.isEquirectangular() ? "true" : "false") << "\n";
+	}
+	if (imageEXIF.GPano.hasPoseHeadingDegrees())
+		std::cout << "GPano.PoseHeadingDegrees " << imageEXIF.GPano.PoseHeadingDegrees << "\n";
 	if (imageEXIF.GPano.hasPosePitchDegrees())
 		std::cout << "GPano.PosePitchDegrees " << imageEXIF.GPano.PosePitchDegrees << "\n";
 	if (imageEXIF.GPano.hasPoseRollDegrees())
 		std::cout << "GPano.PoseRollDegrees " << imageEXIF.GPano.PoseRollDegrees << "\n";
+	if (imageEXIF.GPano.hasCroppedAreaImageWidthPixels())
+		std::cout << "GPano.CroppedAreaImageWidthPixels " << imageEXIF.GPano.CroppedAreaImageWidthPixels << "\n";
+	if (imageEXIF.GPano.hasCroppedAreaImageHeightPixels())
+		std::cout << "GPano.CroppedAreaImageHeightPixels " << imageEXIF.GPano.CroppedAreaImageHeightPixels << "\n";
+	if (imageEXIF.GPano.hasFullPanoWidthPixels())
+		std::cout << "GPano.FullPanoWidthPixels " << imageEXIF.GPano.FullPanoWidthPixels << "\n";
+	if (imageEXIF.GPano.hasFullPanoHeightPixels())
+		std::cout << "GPano.FullPanoHeightPixels " << imageEXIF.GPano.FullPanoHeightPixels << "\n";
+	if (imageEXIF.GPano.hasCroppedAreaLeftPixels())
+		std::cout << "GPano.CroppedAreaLeftPixels " << imageEXIF.GPano.CroppedAreaLeftPixels << "\n";
+	if (imageEXIF.GPano.hasCroppedAreaTopPixels())
+		std::cout << "GPano.CroppedAreaTopPixels " << imageEXIF.GPano.CroppedAreaTopPixels << "\n";
 	if (imageEXIF.Distortion.hasDewarpFlag())
 		std::cout << "Distortion.DewarpFlag " << imageEXIF.Distortion.DewarpFlag << "\n";
 	if (imageEXIF.Distortion.hasDistortion())
 		std::cout << "Distortion [K1 K2 P1 P2 K3] " << std::setprecision(6)
 		          << imageEXIF.Distortion.K1 << " " << imageEXIF.Distortion.K2 << " " << imageEXIF.Distortion.P1
 		          << " " << imageEXIF.Distortion.P2 << " " << imageEXIF.Distortion.K3 << "\n";
+	if (imageEXIF.MicroVideo.HasMicroVideo) {
+		std::cout << "MicroVideo.MicroVideoVersion " << imageEXIF.MicroVideo.MicroVideoVersion << "\n";
+		std::cout << "MicroVideo.MicroVideoOffset " << imageEXIF.MicroVideo.MicroVideoOffset << "\n";
+	}
+	if (imageEXIF.MicroVideo.HasMotionPhoto) {
+		std::cout << "MicroVideo.MotionPhotoLength " << imageEXIF.MicroVideo.MotionPhotoLength << "\n";
+		if (!imageEXIF.MicroVideo.MotionPhotoMime.empty())
+			std::cout << "MicroVideo.MotionPhotoMime " << imageEXIF.MicroVideo.MotionPhotoMime << "\n";
+	}
+
+	// list which fields were actually present: the values printed above can not
+	// tell a tag that was absent from a tag that was there and legitimately zero,
+	// while HasField()/GetFields() can
+	if (listFields) {
+		const std::vector<TinyEXIF::FieldID> fields(imageEXIF.GetFields());
+		std::cout << "Fields present: " << fields.size() << "\n";
+		for (size_t i=0; i<fields.size(); ++i)
+			std::cout << "  " << TinyEXIF::FieldName(fields[i]) << "\n";
+		// ISOSpeedRatings is the example from issue #15: a value of 0 means
+		// "absent" or "the camera really reported 0" and only this tells which
+		std::cout << "ISOSpeedRatings " << imageEXIF.ISOSpeedRatings
+			<< (imageEXIF.HasField(TinyEXIF::FIELD_ID_ISOSpeedRatings) ? " (present)" : " (absent)") << "\n";
+	}
 	return EXIT_SUCCESS;
 }

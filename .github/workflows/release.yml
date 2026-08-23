@@ -1,0 +1,109 @@
+name: release
+on:
+  push:
+    # Repo tags are bare "major.minor.patch" (e.g. "1.0.4"), no "v" prefix --
+    # see `git tag --list`. Match that instead of assuming a "v*" pattern.
+    tags:
+      - '[0-9]+.[0-9]+.[0-9]+'
+
+# Read-only by default so the build gate, which runs third-party actions, does
+# not inherit the repository's default token. The release job below re-grants
+# itself contents: write, which it needs to publish the release.
+permissions:
+  contents: read
+
+jobs:
+  version-check:
+    # A tag is the one place the library version becomes user-visible, and
+    # nothing compared it to the source. CMakeLists.txt cross-checks
+    # TinyEXIF.h against vcpkg.json at configure time, but pushing tag 9.9.9
+    # against a 1.1.0 header built cleanly and would have published a release
+    # titled "TinyEXIF 9.9.9". This runs ahead of the build gate so a mistyped
+    # tag costs seconds instead of a full build.
+    name: "Tag matches TinyEXIF.h"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare the tag against TinyEXIF.h's version macros
+        run: |
+          # Anchored to the start of a line for the same reason CMakeLists.txt
+          # is: an unanchored match is satisfied by any mention of the macro in
+          # a comment or an #if 0 block, and would report a version the
+          # compiler never sees.
+          extract() {
+            sed -n -E "s/^[[:space:]]*#define[[:space:]]+$1[[:space:]]+([0-9]+).*/\1/p" TinyEXIF.h | head -n 1
+          }
+          major=$(extract TINYEXIF_MAJOR_VERSION)
+          minor=$(extract TINYEXIF_MINOR_VERSION)
+          patch=$(extract TINYEXIF_PATCH_VERSION)
+          if [ -z "$major" ] || [ -z "$minor" ] || [ -z "$patch" ]; then
+            echo "::error::Could not read TINYEXIF_MAJOR/MINOR/PATCH_VERSION from TinyEXIF.h."
+            exit 1
+          fi
+          header_version="$major.$minor.$patch"
+          echo "TinyEXIF.h declares $header_version; tag is $GITHUB_REF_NAME"
+          if [ "$header_version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag '$GITHUB_REF_NAME' does not match TinyEXIF.h, which declares $header_version. Update TinyEXIF.h and vcpkg.json before tagging, or re-push the tag under the right name."
+            exit 1
+          fi
+
+  build:
+    needs: version-check
+    # Gates the release on a successful build for this exact tag. This
+    # duplicates one configuration from build.yml's matrix rather than
+    # depending on that separate workflow's own (also tag-triggered) run,
+    # which would need workflow_run chaining to correlate the right run
+    # with this tag -- real added complexity for a library this size.
+    name: "Build gate (ubuntu-latest, BUILD_SHARED_LIBS=OFF)"
+    env:
+      VCPKG_COMMIT: '74e6536215718009aae747d86d84b78376bf9e09'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: lukka/get-cmake@v3.28.4
+      - uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT }}
+      - name: Build with -DBUILD_SHARED_LIBS=OFF
+        uses: lukka/run-cmake@v10
+        with:
+          configurePreset: "vcpkg"
+          configurePresetAdditionalArgs: "[
+            '-DBUILD_SHARED_LIBS=OFF',
+            '-DBUILD_DEMO=ON'
+          ]"
+          buildPreset: "vcpkg"
+          buildPresetAdditionalArgs: "[ '--config Release' ]"
+
+  release:
+    name: "Create GitHub Release"
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Extract this tag's CHANGELOG.md section
+        run: |
+          # Accepts either the released heading form ("## [<tag>] - <date>")
+          # or the transitional pre-release form ("## [Unreleased] - <tag>"),
+          # so a tag pushed before the CHANGELOG heading is renamed still
+          # produces real notes instead of an empty release body. See the
+          # release-procedure note near the top of CHANGELOG.md.
+          awk -v tag="${GITHUB_REF_NAME}" '
+            # tag is interpolated into a regex, so its dots must be literal.
+            BEGIN { gsub(/\./, "\\.", tag) }
+            $0 ~ "^## \\[" tag "\\]" { found=1; next }
+            $0 ~ "^## \\[Unreleased\\] - " tag "$" { found=1; next }
+            found && /^## \[/ { exit }
+            found { print }
+          ' CHANGELOG.md > release_notes.md
+          if ! grep -q '[^[:space:]]' release_notes.md; then
+            echo "::error::No CHANGELOG.md section found for tag '${GITHUB_REF_NAME}'. Looked for heading '## [${GITHUB_REF_NAME}]' or '## [Unreleased] - ${GITHUB_REF_NAME}'."
+            exit 1
+          fi
+      - name: Create release
+        uses: softprops/action-gh-release@v3.0.2
+        with:
+          name: "TinyEXIF ${{ github.ref_name }}"
+          body_path: release_notes.md
