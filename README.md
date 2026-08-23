@@ -77,8 +77,6 @@ MIT [License](https://github.com/cdcseacave/TinyEXIF/blob/master/LICENSE)
 
 Copyright (c) 2025 cdcseacave
 
-Portions derive from easyexif and remain subject to its BSD-2-Clause terms; see [LICENSE.easyexif](https://github.com/cdcseacave/TinyEXIF/blob/master/LICENSE.easyexif).
-
 ## Acknowledgments
 
 Forked from [easyexif](https://github.com/mayanklahiri/easyexif) library (2013 version) of Mayank Lahiri (mlahiri@gmail.com); see [LICENSE.easyexif](https://github.com/cdcseacave/TinyEXIF/blob/master/LICENSE.easyexif) for its terms.
