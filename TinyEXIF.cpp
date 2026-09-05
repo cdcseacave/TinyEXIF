@@ -555,7 +555,7 @@ void EXIFInfo::parseIFDImage(EntryParser& parser, uint64_t& exif_sub_ifd_offset,
 	case 0x1001:
 		// Original Image width
 		if (!SetFieldIf(FIELD_ID_RelatedImageWidth, parser.Fetch(RelatedImageWidth))) {
-			uint16_t _RelatedImageWidth;
+			uint16_t _RelatedImageWidth = 0;
 			if (SetFieldIf(FIELD_ID_RelatedImageWidth, parser.Fetch(_RelatedImageWidth)))
 				RelatedImageWidth = _RelatedImageWidth;
 		}
@@ -564,7 +564,7 @@ void EXIFInfo::parseIFDImage(EntryParser& parser, uint64_t& exif_sub_ifd_offset,
 	case 0x1002:
 		// Original Image height
 		if (!SetFieldIf(FIELD_ID_RelatedImageHeight, parser.Fetch(RelatedImageHeight))) {
-			uint16_t _RelatedImageHeight;
+			uint16_t _RelatedImageHeight = 0;
 			if (SetFieldIf(FIELD_ID_RelatedImageHeight, parser.Fetch(_RelatedImageHeight)))
 				RelatedImageHeight = _RelatedImageHeight;
 		}
@@ -713,7 +713,7 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 	case 0xa002:
 		// EXIF Image width
 		if (!SetFieldIf(FIELD_ID_ImageWidth, parser.Fetch(ImageWidth))) {
-			uint16_t _ImageWidth;
+			uint16_t _ImageWidth = 0;
 			if (SetFieldIf(FIELD_ID_ImageWidth, parser.Fetch(_ImageWidth)))
 				ImageWidth = _ImageWidth;
 		}
@@ -722,7 +722,7 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 	case 0xa003:
 		// EXIF Image height
 		if (!SetFieldIf(FIELD_ID_ImageHeight, parser.Fetch(ImageHeight))) {
-			uint16_t _ImageHeight;
+			uint16_t _ImageHeight = 0;
 			if (SetFieldIf(FIELD_ID_ImageHeight, parser.Fetch(_ImageHeight)))
 				ImageHeight = _ImageHeight;
 		}
@@ -760,7 +760,7 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 	case 0xa405:
 		// Focal length in 35mm film
 		if (!SetFieldIf(FIELD_ID_LensInfo_FocalLengthIn35mm, parser.Fetch(LensInfo.FocalLengthIn35mm))) {
-			uint16_t _FocalLengthIn35mm;
+			uint16_t _FocalLengthIn35mm = 0;
 			if (SetFieldIf(FIELD_ID_LensInfo_FocalLengthIn35mm, parser.Fetch(_FocalLengthIn35mm)))
 				LensInfo.FocalLengthIn35mm = (double)_FocalLengthIn35mm;
 		}
@@ -890,9 +890,11 @@ void EXIFInfo::parseIFDGPS(EntryParser& parser) {
 
 	case 5:
 		// GPS altitude reference (below or above sea level)
-		uint8_t altitudeRef;
-		if (SetFieldIf(FIELD_ID_GeoLocation_AltitudeRef, parser.Fetch(altitudeRef)))
-			GeoLocation.AltitudeRef = (int8_t)altitudeRef;
+		{
+			uint8_t altitudeRef = 0;
+			if (SetFieldIf(FIELD_ID_GeoLocation_AltitudeRef, parser.Fetch(altitudeRef)))
+				GeoLocation.AltitudeRef = (int8_t)altitudeRef;
+		}
 		break;
 
 	case 6:
