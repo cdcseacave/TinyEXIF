@@ -35,6 +35,8 @@ namespace {
 #endif
 
 
+#ifndef TINYEXIF_NO_XMP_SUPPORT
+// helpers used only by the XMP parser, so a build without it does not warn they are unused
 namespace Tools {
 
 	// search string inside a string, case sensitive
@@ -70,6 +72,7 @@ namespace Tools {
 	}
 
 } // namespace Tools
+#endif // TINYEXIF_NO_XMP_SUPPORT
 
 
 namespace TinyEXIF {
@@ -148,7 +151,7 @@ private:
 	const uint8_t* buf;
 	const unsigned len;
 	const unsigned tiff_header_start;
-	const bool alignIntel; // byte alignment (defined in EXIF header)
+	const bool alignIntel; // byte order of the file (TIFF header), independent of the host
 	unsigned offs; // current offset into buffer
 	uint16_t tag, format;
 	uint32_t length;
@@ -262,11 +265,16 @@ public:
 		return true;
 	}
 
-	bool FetchFloat(double& val) const {
-		float _val;
-		if (!Fetch(_val))
+	// Fetch a value stored as type T into a member of a different type, e.g. an
+	// image width written as SHORT instead of LONG; like Fetch(), it leaves 'val'
+	// untouched when the entry is not a T. The temporary is initialized so that no
+	// compiler has to prove Fetch() wrote it before it is read (gcc 16 can not, #30).
+	template <typename T, typename V>
+	bool FetchAs(V& val) const {
+		T stored = T();
+		if (!Fetch(stored))
 			return false;
-		val = _val;
+		val = (V)stored;
 		return true;
 	}
 
@@ -553,21 +561,13 @@ void EXIFInfo::parseIFDImage(EntryParser& parser, uint64_t& exif_sub_ifd_offset,
 		break;
 
 	case 0x1001:
-		// Original Image width
-		if (!SetFieldIf(FIELD_ID_RelatedImageWidth, parser.Fetch(RelatedImageWidth))) {
-			uint16_t _RelatedImageWidth;
-			if (SetFieldIf(FIELD_ID_RelatedImageWidth, parser.Fetch(_RelatedImageWidth)))
-				RelatedImageWidth = _RelatedImageWidth;
-		}
+		// Original Image width (LONG or SHORT)
+		SetFieldIf(FIELD_ID_RelatedImageWidth, parser.Fetch(RelatedImageWidth) || parser.FetchAs<uint16_t>(RelatedImageWidth));
 		break;
 
 	case 0x1002:
-		// Original Image height
-		if (!SetFieldIf(FIELD_ID_RelatedImageHeight, parser.Fetch(RelatedImageHeight))) {
-			uint16_t _RelatedImageHeight;
-			if (SetFieldIf(FIELD_ID_RelatedImageHeight, parser.Fetch(_RelatedImageHeight)))
-				RelatedImageHeight = _RelatedImageHeight;
-		}
+		// Original Image height (LONG or SHORT)
+		SetFieldIf(FIELD_ID_RelatedImageHeight, parser.Fetch(RelatedImageHeight) || parser.FetchAs<uint16_t>(RelatedImageHeight));
 		break;
 
 	case 0x8298:
@@ -711,21 +711,13 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 		break;
 
 	case 0xa002:
-		// EXIF Image width
-		if (!SetFieldIf(FIELD_ID_ImageWidth, parser.Fetch(ImageWidth))) {
-			uint16_t _ImageWidth;
-			if (SetFieldIf(FIELD_ID_ImageWidth, parser.Fetch(_ImageWidth)))
-				ImageWidth = _ImageWidth;
-		}
+		// EXIF Image width (LONG or SHORT)
+		SetFieldIf(FIELD_ID_ImageWidth, parser.Fetch(ImageWidth) || parser.FetchAs<uint16_t>(ImageWidth));
 		break;
 
 	case 0xa003:
-		// EXIF Image height
-		if (!SetFieldIf(FIELD_ID_ImageHeight, parser.Fetch(ImageHeight))) {
-			uint16_t _ImageHeight;
-			if (SetFieldIf(FIELD_ID_ImageHeight, parser.Fetch(_ImageHeight)))
-				ImageHeight = _ImageHeight;
-		}
+		// EXIF Image height (LONG or SHORT)
+		SetFieldIf(FIELD_ID_ImageHeight, parser.Fetch(ImageHeight) || parser.FetchAs<uint16_t>(ImageHeight));
 		break;
 
 	case 0xa20e:
@@ -744,11 +736,15 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 		break;
 
 	case 0xa215:
-		// Exposure Index and ISO Speed Rating are often used interchangeably
+		// Exposure Index and ISO Speed Rating are often used interchangeably;
+		// converting a double that uint16_t can not represent is undefined behavior,
+		// so a negative index is rejected and a large one clamped, as EXIF does for ISO
 		if (ISOSpeedRatings == 0) {
-			double ExposureIndex;
-			if (SetFieldIf(FIELD_ID_ISOSpeedRatings, parser.Fetch(ExposureIndex)))
-				ISOSpeedRatings = (uint16_t)ExposureIndex;
+			double ExposureIndex(0);
+			if (parser.Fetch(ExposureIndex) && ExposureIndex >= 0) {
+				ISOSpeedRatings = (uint16_t)std::min(ExposureIndex, (double)UINT16_MAX);
+				SetField(FIELD_ID_ISOSpeedRatings);
+			}
 		}
 		break;
 
@@ -758,12 +754,8 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 		break;
 
 	case 0xa405:
-		// Focal length in 35mm film
-		if (!SetFieldIf(FIELD_ID_LensInfo_FocalLengthIn35mm, parser.Fetch(LensInfo.FocalLengthIn35mm))) {
-			uint16_t _FocalLengthIn35mm;
-			if (SetFieldIf(FIELD_ID_LensInfo_FocalLengthIn35mm, parser.Fetch(_FocalLengthIn35mm)))
-				LensInfo.FocalLengthIn35mm = (double)_FocalLengthIn35mm;
-		}
+		// Focal length in 35mm film (SHORT per EXIF, RATIONAL in some files)
+		SetFieldIf(FIELD_ID_LensInfo_FocalLengthIn35mm, parser.Fetch(LensInfo.FocalLengthIn35mm) || parser.FetchAs<uint16_t>(LensInfo.FocalLengthIn35mm));
 		break;
 
 	case 0xa431:
@@ -821,32 +813,32 @@ void EXIFInfo::parseIFDMakerNote(EntryParser& parser) {
 				switch (parser.GetTag()) {
 				case 3:
 					// SpeedX
-					SetFieldIf(FIELD_ID_GeoLocation_SpeedX, parser.FetchFloat(GeoLocation.SpeedX));
+					SetFieldIf(FIELD_ID_GeoLocation_SpeedX, parser.FetchAs<float>(GeoLocation.SpeedX));
 					break;
 
 				case 4:
 					// SpeedY
-					SetFieldIf(FIELD_ID_GeoLocation_SpeedY, parser.FetchFloat(GeoLocation.SpeedY));
+					SetFieldIf(FIELD_ID_GeoLocation_SpeedY, parser.FetchAs<float>(GeoLocation.SpeedY));
 					break;
 
 				case 5:
 					// SpeedZ
-					SetFieldIf(FIELD_ID_GeoLocation_SpeedZ, parser.FetchFloat(GeoLocation.SpeedZ));
+					SetFieldIf(FIELD_ID_GeoLocation_SpeedZ, parser.FetchAs<float>(GeoLocation.SpeedZ));
 					break;
 
 				case 9:
 					// Camera Pitch
-					SetFieldIf(FIELD_ID_GeoLocation_PitchDegree, parser.FetchFloat(GeoLocation.PitchDegree));
+					SetFieldIf(FIELD_ID_GeoLocation_PitchDegree, parser.FetchAs<float>(GeoLocation.PitchDegree));
 					break;
 
 				case 10:
 					// Camera Yaw
-					SetFieldIf(FIELD_ID_GeoLocation_YawDegree, parser.FetchFloat(GeoLocation.YawDegree));
+					SetFieldIf(FIELD_ID_GeoLocation_YawDegree, parser.FetchAs<float>(GeoLocation.YawDegree));
 					break;
 
 				case 11:
 					// Camera Roll
-					SetFieldIf(FIELD_ID_GeoLocation_RollDegree, parser.FetchFloat(GeoLocation.RollDegree));
+					SetFieldIf(FIELD_ID_GeoLocation_RollDegree, parser.FetchAs<float>(GeoLocation.RollDegree));
 					break;
 				}
 			}
@@ -890,9 +882,7 @@ void EXIFInfo::parseIFDGPS(EntryParser& parser) {
 
 	case 5:
 		// GPS altitude reference (below or above sea level)
-		uint8_t altitudeRef;
-		if (SetFieldIf(FIELD_ID_GeoLocation_AltitudeRef, parser.Fetch(altitudeRef)))
-			GeoLocation.AltitudeRef = (int8_t)altitudeRef;
+		SetFieldIf(FIELD_ID_GeoLocation_AltitudeRef, parser.FetchAs<uint8_t>(GeoLocation.AltitudeRef));
 		break;
 
 	case 6:
@@ -1122,14 +1112,15 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	//  8 bytes
 	if (offs + 8 > len)
 		return PARSE_CORRUPT_DATA;
-	const uint32_t _ONE32 = 1;
-	const bool IS_LITTLE_ENDIAN = reinterpret_cast<uint8_t const*>(&_ONE32)[0] == 1;
+	// The marker states the byte order of the file, never of the host: parse16() and
+	// parse32() assemble every value from its bytes, so they already give the same
+	// result on any CPU, and mixing in the host's byte order inverts them (#29)
 	bool alignIntel;
 	if (buf[offs] == 'I' && buf[offs+1] == 'I')
-		alignIntel = IS_LITTLE_ENDIAN; // 1: Intel byte alignment
+		alignIntel = true; // 1: Intel byte alignment (little-endian)
 	else
 	if (buf[offs] == 'M' && buf[offs+1] == 'M')
-		alignIntel = !IS_LITTLE_ENDIAN; // 0: Motorola byte alignment
+		alignIntel = false; // 0: Motorola byte alignment (big-endian)
 	else
 		return PARSE_UNKNOWN_BYTEALIGN;
 	const unsigned tiff_header_start = offs;

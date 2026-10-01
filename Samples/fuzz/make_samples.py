@@ -2,7 +2,8 @@
 """Generator for the crafted regression samples in Samples/fuzz/.
 
 These are not real photos: each one is a minimal JPEG whose APP1/EXIF segment is
-built to hit one specific out-of-bounds read that the parser used to perform.
+built to hit one specific out-of-bounds read or undefined-behavior conversion
+that the parser used to perform.
 They are checked in together with this generator so that the bytes stay
 reviewable instead of being an opaque blob; re-run it to regenerate them:
 
@@ -29,6 +30,7 @@ FMT_SHORT = 3
 FMT_LONG = 4
 FMT_RATIONAL = 5
 FMT_UNDEFINED = 7
+FMT_SRATIONAL = 10
 
 
 def entry(tag, fmt, count, value):
@@ -174,6 +176,28 @@ def subjectarea_count_wrap():
 	return exif_payload(body)
 
 
+def exposure_index(fmt, numerator):
+	"""parseIFDExif(), tag 0xa215 (ExposureIndex): a double cast to uint16_t unchecked.
+
+	ExposureIndex fills ISOSpeedRatings, a uint16_t, from a (S)RATIONAL; converting
+	a double the target type can not represent is undefined behavior, which UBSan
+	reports as float-cast-overflow. The rational is stored right after the IFD.
+	"""
+	value_offset = len(TIFF_HEADER) + 4 + len(ifd([b'\x00' * IFD_ENTRY_SIZE]))
+	body = ifd([entry(0xa215, fmt, 1, struct.pack('>I', value_offset))])
+	return exif_payload(body + struct.pack('>iI' if fmt == FMT_SRATIONAL else '>II', numerator, 1))
+
+
+def exposure_index_overflow():
+	"""ExposureIndex 100000, above uint16_t: clamped to 65535, as EXIF records ISO."""
+	return exposure_index(FMT_RATIONAL, 100000)
+
+
+def exposure_index_negative():
+	"""ExposureIndex -1, below uint16_t: not a valid index, so ISOSpeedRatings stays absent."""
+	return exposure_index(FMT_SRATIONAL, -1)
+
+
 SAMPLES = (
 	('poc-rational-oob.jpg', rational_oob),
 	('poc-makernote-oob.jpg', makernote_oob),
@@ -182,6 +206,8 @@ SAMPLES = (
 	('poc-first-ifd-underflow.jpg', first_ifd_offset_underflow),
 	('poc-subjectarea-alloc-dos.jpg', subjectarea_alloc_dos),
 	('poc-subjectarea-count-wrap.jpg', subjectarea_count_wrap),
+	('poc-exposureindex-overflow.jpg', exposure_index_overflow),
+	('poc-exposureindex-negative.jpg', exposure_index_negative),
 )
 
 

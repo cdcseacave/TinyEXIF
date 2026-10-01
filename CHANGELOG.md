@@ -11,6 +11,32 @@ this project uses [Semantic Versioning](https://semver.org/).
      <version>" form as a transitional fallback, so a tag pushed before the
      rename still works -- but renaming first keeps this file accurate.) -->
 
+## [Unreleased] - 1.1.1
+
+### Fixed
+- **Big-endian CPUs could not parse EXIF at all.** The "Big-endian CPU
+  support" of 1.0.3 (#14) combined the TIFF byte-order marker with the host's
+  byte order, but `parse16()`/`parse32()` assemble values byte by byte and were
+  already host-independent, so on a big-endian host both `II` and `MM` were
+  inverted: `II` files failed with `PARSE_CORRUPT_DATA` and `MM` files decoded
+  corrupted values. The marker now selects the file's byte order alone.
+  Little-endian hosts are unaffected. A new CI job runs the full corpus on
+  s390x under QEMU. Reported by @cinema-ONE. (#29)
+- gcc 16 `-Wmaybe-uninitialized` warnings on the six fetch-into-temporary
+  sites. Rather than initializing each temporary, they are gone: the new
+  `EntryParser::FetchAs<T>()` fetches a value stored as one type into a member
+  of another, and also replaces `FetchFloat()`. Builds with
+  `TINYEXIF_NO_XMP_SUPPORT` no longer warn about the XMP-only string helpers.
+  A new CI job compiles with gcc 16 `-Wall -Wextra -Werror` at every
+  optimization level, with and without XMP. Reported by @heitbaum. (#30)
+- Undefined behavior converting an out-of-range `ExposureIndex` to
+  `ISOSpeedRatings`: a negative index now leaves `ISOSpeedRatings` absent and
+  one above 65535 is clamped to 65535, as EXIF records ISO. The sanitizer job
+  now enables `float-cast-overflow`, which gcc leaves out of
+  `-fsanitize=undefined`.
+- `TestSamples.py --update` aborted on the corpus's own error samples, mistaking
+  the demo's 253..255 exit codes for signal deaths.
+
 ## [1.1.0] - 2026-08-23
 
 ### Added
@@ -95,7 +121,7 @@ and there is no workaround other than upgrading.
 - `std::istream`-based constructor. (#11)
 - Google Camera motion-photo metadata support. (#12)
 - `GPano:PosePitchDegrees` / `GPano:PoseRollDegrees` parsing. (#8)
-- Big-endian CPU support. (#14)
+- Big-endian CPU support. (#14; did not work, fixed in 1.1.1 by #29)
 
 ### Fixed
 - MSVC++ UNICODE builds. (#9)
