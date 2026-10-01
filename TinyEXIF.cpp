@@ -214,6 +214,8 @@ public:
 	const uint8_t* GetBuffer() const { return buf; }
 	unsigned GetOffset() const { return offs; }
 	bool IsIntelAligned() const { return alignIntel; }
+	// a parser over the same buffer and TIFF header, reading in the given byte order
+	EntryParser WithByteOrder(bool intel) const { return EntryParser(buf, len, tiff_header_start, intel); }
 
 	uint16_t GetTag() const { return tag; }
 	uint32_t GetLength() const { return length; }
@@ -490,6 +492,7 @@ static const char* const g_FieldNames[] = {
 	"MicroVideo.HasMotionPhoto",
 	"MicroVideo.MotionPhotoLength",
 	"MicroVideo.MotionPhotoMime",
+	"MaxApertureValue",
 };
 static_assert(sizeof(g_FieldNames)/sizeof(g_FieldNames[0]) == (size_t)FIELD_ID_COUNT,
 	"g_FieldNames must have exactly one entry per FieldID");
@@ -683,6 +686,14 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 		break;
 	}
 
+	case 0x9205: {
+		// Max aperture value, the widest aperture of the lens, converted from APEX
+		// to an f-number exactly like ApertureValue above
+		double apex(0);
+		SetFieldIf(FIELD_ID_MaxApertureValue, parser.Fetch(apex) && AssignFinite(MaxApertureValue, exp(apex*log(2)*0.5)));
+		break;
+	}
+
 	case 0x9203:
 		// Brightness value
 		SetFieldIf(FIELD_ID_BrightnessValue, parser.Fetch(BrightnessValue));
@@ -817,25 +828,28 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 }
 
 // Parse tag as MakerNote IFD
-void EXIFInfo::parseIFDMakerNote(EntryParser& parser) {
-	const unsigned startOff = parser.GetOffset();
-	const uint64_t off = parser.GetSubIFD();
+void EXIFInfo::parseIFDMakerNote(EntryParser& exif) {
 	if (0 != strcasecmp(Make.c_str(), "DJI"))
 		return;
 	// the MakerNote is a full IFD of its own: entry count followed by 12-byte entries,
 	// none of which the tag's own length field is allowed to vouch for
-	if (!parser.InBounds(off, 2))
+	const uint64_t off = exif.GetSubIFD();
+	if (!exif.InBounds(off, 4))
 		return;
-	int num_entries = EntryParser::parse16(parser.GetBuffer()+(size_t)off, parser.IsIntelAligned());
-	if (uint32_t(2 + 12 * num_entries) > parser.GetLength())
+	// it is walked by a parser of its own, as its byte order can differ from the EXIF
+	// one: DJI writes it little-endian, and a tool rewriting the EXIF in Motorola order
+	// copies this opaque blob unchanged; the right order is the one in which the first
+	// entry reads as tag 1, the "DJI" make
+	const uint8_t* const note(exif.GetBuffer() + (size_t)off);
+	EntryParser parser(exif.WithByteOrder(EntryParser::parse16(note + 2, true) == 1));
+	int num_entries = EntryParser::parse16(note, parser.IsIntelAligned());
+	if (uint32_t(2 + 12 * num_entries) > exif.GetLength())
 		return;
 	if (!parser.InBounds(off+2, 12*(uint32_t)num_entries))
 		return;
 	parser.Init((unsigned)(off+2));
-	if (!parser.ParseTag()) {
-		parser.Init(startOff+12);
+	if (!parser.ParseTag())
 		return;
-	}
 	--num_entries;
 	std::string maker;
 	if (parser.GetTag() == 1 && parser.Fetch(maker)) {
@@ -877,7 +891,24 @@ void EXIFInfo::parseIFDMakerNote(EntryParser& parser) {
 			}
 		}
 	}
-	parser.Init(startOff+12);
+}
+
+// GPS IFD tags 1 to 6: latitude, longitude and altitude, each with its reference
+static bool IsGPSPositionTag(uint16_t tag) {
+	return tag >= 1 && tag <= 6;
+}
+
+// True if the GPS IFD whose entries start at 'offs' has GPSStatus 'V': the receiver
+// reports its measurement void, i.e. it had no fix. Cameras still write the position
+// tags then, usually all zeros, which would place the image at 0N 0E; so the caller
+// skips them, leaving the position absent instead of wrong.
+static bool IsGPSMeasurementVoid(EntryParser& parser, unsigned offs, unsigned num_entries) {
+	std::string status;
+	parser.Init(offs);
+	while (num_entries-- > 0 && parser.ParseTag())
+		if (parser.GetTag() == 9 && parser.Fetch(status))
+			return status == "V";
+	return false;
 }
 
 // Parse tag as GPS IFD
@@ -1218,11 +1249,14 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 		num_entries = EntryParser::parse16(buf + offs, alignIntel);
 		if (!parser.InBounds((uint64_t)offs + 2, 12 * num_entries))
 			return PARSE_CORRUPT_DATA;
+		// GPSStatus follows the position tags, so it is looked up first
+		const bool positionVoid(IsGPSMeasurementVoid(parser, offs+2, num_entries));
 		parser.Init(offs+2);
 		while (num_entries-- > 0) {
 			if (!parser.ParseTag())
 				break;
-			parseIFDGPS(parser);
+			if (!positionVoid || !IsGPSPositionTag(parser.GetTag()))
+				parseIFDGPS(parser);
 		}
 		GeoLocation.parseCoords();
 	}
@@ -1418,7 +1452,11 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 	// Try parsing the XMP content for supported maker's info.
 	const char* szAbout(document->Attribute("rdf:about"));
 	if (0 == strcasecmp(Make.c_str(), "DJI") || (szAbout != NULL && 0 == strcasecmp(szAbout, "DJI Meta Data"))) {
-		SetFieldIf(FIELD_ID_GeoLocation_Altitude, ParseXMP::Value(document, "drone-dji:AbsoluteAltitude", GeoLocation.Altitude));
+		// the absolute altitude needs a GPS fix, and without one DJI marks it invalid
+		// through GpsStatus, as EXIF does through GPSStatus 'V'
+		std::string gpsStatus;
+		if (!ParseXMP::Value(document, "drone-dji:GpsStatus", gpsStatus) || 0 != strcasecmp(gpsStatus.c_str(), "Invalid"))
+			SetFieldIf(FIELD_ID_GeoLocation_Altitude, ParseXMP::Value(document, "drone-dji:AbsoluteAltitude", GeoLocation.Altitude));
 		SetFieldIf(FIELD_ID_GeoLocation_RelativeAltitude, ParseXMP::Value(document, "drone-dji:RelativeAltitude", GeoLocation.RelativeAltitude));
 		SetFieldIf(FIELD_ID_GeoLocation_RollDegree, ParseXMP::Value(document, "drone-dji:GimbalRollDegree", GeoLocation.RollDegree));
 		SetFieldIf(FIELD_ID_GeoLocation_PitchDegree, ParseXMP::Value(document, "drone-dji:GimbalPitchDegree", GeoLocation.PitchDegree));
@@ -1426,6 +1464,13 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		SetFieldIf(FIELD_ID_Calibration_FocalLength, ParseXMP::Value(document, "drone-dji:CalibratedFocalLength", Calibration.FocalLength));
 		SetFieldIf(FIELD_ID_Calibration_OpticalCenterX, ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterX", Calibration.OpticalCenterX));
 		SetFieldIf(FIELD_ID_Calibration_OpticalCenterY, ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterY", Calibration.OpticalCenterY));
+		// flight speed: the DJI MakerNote has it at binary precision and wins in either
+		// segment order, as it overwrites while this XMP text only fills in a missing one
+		if (!GeoLocation.hasSpeed()) {
+			SetFieldIf(FIELD_ID_GeoLocation_SpeedX, ParseXMP::Value(document, "drone-dji:FlightXSpeed", GeoLocation.SpeedX));
+			SetFieldIf(FIELD_ID_GeoLocation_SpeedY, ParseXMP::Value(document, "drone-dji:FlightYSpeed", GeoLocation.SpeedY));
+			SetFieldIf(FIELD_ID_GeoLocation_SpeedZ, ParseXMP::Value(document, "drone-dji:FlightZSpeed", GeoLocation.SpeedZ));
+		}
 		std::string dewarpData;
 		SetFieldIf(FIELD_ID_Distortion_DewarpFlag, ParseXMP::Value(document, "drone-dji:DewarpFlag", Distortion.DewarpFlag));
 		// DewarpData lands in a local: the fields it feeds are marked below, where they are written
@@ -1553,6 +1598,12 @@ bool EXIFInfo::Distortion_t::hasDistortion() const {
 	return K1 != 0.0 || K2 != 0.0 || P1 != 0.0 || P2 != 0.0 || K3 != 0.0;
 }
 
+// Negate a magnitude without turning 0 into IEEE 754 -0.0, which prints as "-0": a
+// position on the equator, the prime meridian or at sea level is 0 whatever its ref
+static double Negate(double magnitude) {
+	return magnitude == 0 ? 0.0 : -magnitude;
+}
+
 void EXIFInfo::Geolocation_t::parseCoords() {
 	// Convert GPS latitude
 	if (LatComponents.degrees != DBL_MAX ||
@@ -1563,7 +1614,7 @@ void EXIFInfo::Geolocation_t::parseCoords() {
 			LatComponents.minutes / 60 +
 			LatComponents.seconds / 3600;
 		if ('S' == LatComponents.direction)
-			Latitude = -Latitude;
+			Latitude = Negate(Latitude);
 	}
 	// Convert GPS longitude
 	if (LonComponents.degrees != DBL_MAX ||
@@ -1574,12 +1625,12 @@ void EXIFInfo::Geolocation_t::parseCoords() {
 			LonComponents.minutes / 60 +
 			LonComponents.seconds / 3600;
 		if ('W' == LonComponents.direction)
-			Longitude = -Longitude;
+			Longitude = Negate(Longitude);
 	}
 	// Convert GPS altitude
 	if (hasAltitude() &&
 		(AltitudeRef == 1 || AltitudeRef == 3)) {
-		Altitude = -std::abs(Altitude);
+		Altitude = Negate(std::abs(Altitude));
 	}
 }
 
@@ -1677,6 +1728,7 @@ void EXIFInfo::clear() {
 	ISOSpeedRatings   = 0;
 	ShutterSpeedValue = 0;
 	ApertureValue     = 0;
+	MaxApertureValue  = 0;
 	BrightnessValue   = 0;
 	ExposureBiasValue = 0;
 	SubjectDistance   = 0;

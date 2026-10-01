@@ -179,6 +179,8 @@ enum FieldID {
 	FIELD_ID_MicroVideo_HasMotionPhoto,
 	FIELD_ID_MicroVideo_MotionPhotoLength,
 	FIELD_ID_MicroVideo_MotionPhotoMime,
+	// added in 1.2.0
+	FIELD_ID_MaxApertureValue,
 	FIELD_ID_COUNT                      // number of known fields; not a field itself
 };
 
@@ -321,6 +323,7 @@ public:
 	uint16_t ISOSpeedRatings;           // ISO speed
 	double ShutterSpeedValue;           // Shutter speed (reciprocal of exposure time)
 	double ApertureValue;               // The lens aperture
+	double MaxApertureValue;            // The widest aperture of the lens, as an f-number
 	double BrightnessValue;             // The value of brightness
 	double ExposureBiasValue;           // Exposure bias value in EV
 	double SubjectDistance;             // Distance to focus point in meters
@@ -447,7 +450,7 @@ public:
 			uint8_t direction;
 		} LatComponents, LonComponents; // Latitude/Longitude expressed in deg/min/sec
 		void parseCoords();             // Convert Latitude/Longitude from deg/min/sec to decimal
-		bool hasLatLon() const;         // Return true if (lat,lon) is available
+		bool hasLatLon() const;         // Return true if (lat,lon) is available; not when the GPS had no fix (GPSStatus 'V')
 		bool hasAltitude() const;       // Return true if (alt) is available
 		bool hasRelativeAltitude()const;// Return true if (rel_alt) is available
 		bool hasOrientation() const;    // Return true if (roll,yaw,pitch) is available

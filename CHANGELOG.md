@@ -13,7 +13,26 @@ this project uses [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased] - 1.2.0
 
+### Added
+- `MaxApertureValue` (EXIF 0x9205), the widest aperture of the lens, as an
+  f-number like `ApertureValue`, with `FIELD_ID_MaxApertureValue`.
+- DJI XMP flight speed (`drone-dji:FlightXSpeed`/`YSpeed`/`ZSpeed`) now fills
+  `GeoLocation.SpeedX/Y/Z` when the DJI MakerNote has not, as on cameras that
+  write no MakerNote speed (e.g. the Osmo 360). The MakerNote, being binary,
+  still takes precedence.
+
 ### Fixed
+- **A GPS receiver without a fix no longer yields a position.** Cameras write
+  the position tags even then, usually all zeros, which placed the image at
+  0°N 0°E. With `GPSStatus` `V` (measurement void) latitude, longitude and
+  altitude are now left absent, as is the DJI XMP `AbsoluteAltitude` when
+  `drone-dji:GpsStatus` is `Invalid`.
+- A latitude, longitude or altitude of 0 with a south, west or below-sea-level
+  reference read back as IEEE 754 `-0`, which prints as "-0".
+- A DJI MakerNote was skipped entirely, speeds and camera angles included, in
+  files whose EXIF was rewritten in Motorola byte order: DJI writes the
+  MakerNote little-endian and editors copy it unchanged, so its byte order is
+  now detected rather than taken from the TIFF header.
 - **Big-endian CPUs could not parse EXIF at all.** The "Big-endian CPU
   support" of 1.0.3 (#14) combined the TIFF byte-order marker with the host's
   byte order, but `parse16()`/`parse32()` assemble values byte by byte and were

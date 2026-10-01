@@ -15,6 +15,7 @@ ExposureProgram 2
 ISOSpeed 100
 ShutterSpeedValue 0.00400217509
 ApertureValue 4.993322196
+MaxApertureValue 2.799171731
 BrightnessValue 0
 ExposureBiasValue 0
 SubjectDistance 0
@@ -43,6 +44,9 @@ GeoLocation.RelativeAltitude 61.07 m
 GeoLocation.RollDegree 0
 GeoLocation.PitchDegree -90
 GeoLocation.YawDegree -58.8
+GeoLocation.SpeedX 0 m/s
+GeoLocation.SpeedY 0 m/s
+GeoLocation.SpeedZ 0 m/s
 GeoLocation.GPSDOP 0
 GeoLocation.GPSDifferential 0
 Distortion.DewarpFlag 1

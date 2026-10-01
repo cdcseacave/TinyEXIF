@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 """Generator for the crafted regression samples in Samples/fuzz/.
 
-These are not real photos: each one is a minimal JPEG whose APP1 EXIF or XMP
-segment is built to hit one specific out-of-bounds read, undefined-behavior
-conversion or non-finite value that the parser used to perform or store.
+These are not real photos: each one is a minimal JPEG whose APP1 EXIF and/or
+XMP segments are built to pin one specific parser behavior. The poc-* samples
+hit an out-of-bounds read, undefined-behavior conversion or non-finite value
+that the parser used to perform or store; the others cover corners of the
+format that real files reach (a GPS without a fix, mixed byte orders).
 They are checked in together with this generator so that the bytes stay
 reviewable instead of being an opaque blob; re-run it to regenerate them:
 
@@ -60,11 +62,52 @@ def exif_payload(body, first_ifd_offset=len(TIFF_HEADER) + 4):
 	return EXIF_ID + TIFF_HEADER + struct.pack('>I', first_ifd_offset) + body
 
 
-def jpeg(payload):
-	"""SOI + APP1(payload) + EOI -- the smallest container the parser accepts."""
+def jpeg(*payloads):
+	"""SOI + one APP1 per payload + EOI -- the smallest container the parser accepts."""
 	return (b'\xff\xd8' +
-		b'\xff\xe1' + struct.pack('>H', len(payload) + 2) + payload +
+		b''.join(b'\xff\xe1' + struct.pack('>H', len(p) + 2) + p for p in payloads) +
 		b'\xff\xd9')
+
+
+def rational(numerator, denominator=1):
+	"""The 8 raw bytes of one RATIONAL."""
+	return struct.pack('>II', numerator, denominator)
+
+
+def ifd_at(offset, fields):
+	"""An IFD placed at TIFF `offset`, followed by the values too large for an entry.
+
+	`fields` are (tag, format, count, raw value bytes); a value of up to 4 bytes is
+	stored in its entry, a longer one after the IFD with the entry pointing to it.
+	Unlike ifd(), this ends the IFD with a (zero) next-IFD offset, as real files do.
+	"""
+	data_offset = offset + 2 + IFD_ENTRY_SIZE * len(fields) + 4
+	entries, data = [], b''
+	for tag, fmt, count, value in fields:
+		if len(value) <= 4:
+			entries.append(entry(tag, fmt, count, value.ljust(4, b'\x00')))
+		else:
+			entries.append(entry(tag, fmt, count, struct.pack('>I', data_offset + len(data))))
+			data += value
+	return ifd(entries) + struct.pack('>I', 0) + data
+
+
+def exif_with_subifd(pointer_tag, fields):
+	"""EXIF payload whose IFD0 holds only a pointer (`pointer_tag`) to one sub-IFD."""
+	ifd0_offset = len(TIFF_HEADER) + 4
+	sub_offset = ifd0_offset + 2 + IFD_ENTRY_SIZE + 4
+	ifd0 = ifd_at(ifd0_offset, [(pointer_tag, FMT_LONG, 1, struct.pack('>I', sub_offset))])
+	return exif_payload(ifd0 + ifd_at(sub_offset, fields))
+
+
+def xmp(attributes):
+	"""XMP payload: one rdf:Description carrying `attributes`, an XML attribute string."""
+	return XMP_ID + (
+		'<x:xmpmeta xmlns:x="adobe:ns:meta/">'
+		'<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+		'<rdf:Description' + attributes + '/>'
+		'</rdf:RDF></x:xmpmeta>'
+	).encode('ascii')
 
 
 def rational_oob():
@@ -256,10 +299,8 @@ def xmp_nonfinite():
 	value, tiff:YResolution, is a well-formed rational that must still parse: 144/2
 	is 72, where the old sscanf read stopped at the slash and returned 144.
 	"""
-	xml = (
-		'<x:xmpmeta xmlns:x="adobe:ns:meta/">'
-		'<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
-		'<rdf:Description rdf:about="DJI Meta Data"'
+	return xmp(
+		' rdf:about="DJI Meta Data"'
 		' xmlns:drone-dji="http://www.dji.com/drone-dji/1.0/"'
 		' xmlns:tiff="http://ns.adobe.com/tiff/1.0/"'
 		' xmlns:GPano="http://ns.google.com/photos/1.0/panorama/"'
@@ -271,10 +312,96 @@ def xmp_nonfinite():
 		' drone-dji:CalibratedFocalLength="inf"'
 		' drone-dji:DewarpData="2026-09-26;1,2,3,4,nan,0.1,0.2,0.3,0.4"'
 		' tiff:XResolution="inf" tiff:YResolution="144/2" tiff:ResolutionUnit="2"'
-		' GPano:PosePitchDegrees="nan" GPano:PoseRollDegrees="1/0"/>'
-		'</rdf:RDF></x:xmpmeta>'
+		' GPano:PosePitchDegrees="nan" GPano:PoseRollDegrees="1/0"'
 	)
-	return XMP_ID + xml.encode('ascii')
+
+
+# GPS IFD tags (EXIF 2.3, 4.6.6)
+GPS_LATITUDE_REF, GPS_LATITUDE = 1, 2
+GPS_LONGITUDE_REF, GPS_LONGITUDE = 3, 4
+GPS_ALTITUDE_REF, GPS_ALTITUDE = 5, 6
+GPS_STATUS = 9
+GPS_MAP_DATUM = 18
+GPS_IFD_POINTER = 0x8825
+EXIF_IFD_POINTER = 0x8769
+
+
+def gps_at_origin(status, altitude_ref):
+	"""GPS fields of a receiver at 0/0/0 on the south/west side, like a camera
+	with no fix writes them (DJI Osmo 360), with the given GPSStatus."""
+	zero = rational(0) * 3
+	return [
+		(GPS_LATITUDE_REF, FMT_ASCII, 2, b'S\x00'),
+		(GPS_LATITUDE, FMT_RATIONAL, 3, zero),
+		(GPS_LONGITUDE_REF, FMT_ASCII, 2, b'W\x00'),
+		(GPS_LONGITUDE, FMT_RATIONAL, 3, zero),
+		(GPS_ALTITUDE_REF, 1, 1, bytes([altitude_ref])),
+		(GPS_ALTITUDE, FMT_RATIONAL, 1, rational(0)),
+		(GPS_STATUS, FMT_ASCII, 2, status + b'\x00'),
+		(GPS_MAP_DATUM, FMT_ASCII, 7, b'WGS-84\x00'),
+	]
+
+
+def gps_void():
+	"""GPSStatus 'V': the receiver had no fix, so its zero position is not one.
+
+	Cameras without a fix still write the position tags, all zeros, and parsing
+	them would place the image at 0N 0E. With the measurement void they must
+	come back absent, along with the DJI XMP AbsoluteAltitude, which DJI marks
+	invalid through drone-dji:GpsStatus the same way; the map datum and the
+	barometric RelativeAltitude do not depend on a fix and stay.
+	"""
+	return (
+		exif_with_subifd(GPS_IFD_POINTER, gps_at_origin(b'V', 0)),
+		xmp(' rdf:about="DJI Meta Data"'
+			' xmlns:drone-dji="http://www.dji.com/drone-dji/1.0/"'
+			' drone-dji:GpsStatus="Invalid"'
+			' drone-dji:AbsoluteAltitude="+0.000"'
+			' drone-dji:RelativeAltitude="+1.500"'),
+	)
+
+
+def gps_signed_zero():
+	"""GPSStatus 'A' at 0/0/0 with the south, west and below-sea-level refs.
+
+	Negating a zero gives IEEE 754 -0.0, which prints as "-0"; a position on the
+	equator, the prime meridian or at sea level must read back as plain 0.
+	"""
+	return exif_with_subifd(GPS_IFD_POINTER, gps_at_origin(b'A', 1))
+
+
+def dji_speed_max_aperture():
+	"""DJI XMP flight speed and the EXIF MaxApertureValue, both parsed since 1.2.0.
+
+	MaxApertureValue is APEX like ApertureValue: 1.85 is f/1.9 (2^(1.85/2)).
+	The speeds come from the XMP only, as cameras without the DJI MakerNote
+	(e.g. the Osmo 360) write them nowhere else.
+	"""
+	return (
+		exif_with_subifd(EXIF_IFD_POINTER, [(0x9205, FMT_RATIONAL, 1, rational(185, 100))]),
+		xmp(' rdf:about="DJI Meta Data"'
+			' xmlns:drone-dji="http://www.dji.com/drone-dji/1.0/"'
+			' drone-dji:FlightXSpeed="+1.50"'
+			' drone-dji:FlightYSpeed="-2.25"'
+			' drone-dji:FlightZSpeed="0.5"'),
+	)
+
+
+def dji_makernote_little_endian():
+	"""A little-endian DJI MakerNote inside Motorola (big-endian) EXIF.
+
+	DJI writes its MakerNote little-endian; a tool that rewrites the EXIF in
+	Motorola byte order copies that opaque blob unchanged (Samples/dji_phantom4_2
+	is such a file). Read in the EXIF's byte order, the entry count came out as
+	garbage and the whole MakerNote, speeds and camera angles, was skipped.
+	"""
+	floats = ((3, 1.5), (4, -2.0), (5, 0.25), (9, -45.0), (10, 90.0), (11, 1.0))
+	note = struct.pack('<H', 1 + len(floats)) + struct.pack('<HHI', 1, FMT_ASCII, 4) + b'DJI\x00'
+	note += b''.join(struct.pack('<HHIf', tag, FMT_FLOAT, 1, value) for tag, value in floats)
+	return exif_payload(ifd_at(len(TIFF_HEADER) + 4, [
+		(0x010f, FMT_ASCII, 4, b'DJI\x00'),
+		(0x927c, FMT_UNDEFINED, len(note), note),
+	]))
 
 
 SAMPLES = (
@@ -290,13 +417,19 @@ SAMPLES = (
 	('poc-apex-overflow.jpg', apex_overflow),
 	('poc-makernote-float-nonfinite.jpg', makernote_float_nonfinite),
 	('poc-xmp-nonfinite.jpg', xmp_nonfinite),
+	('gps-void.jpg', gps_void),
+	('gps-signed-zero.jpg', gps_signed_zero),
+	('dji-speed-max-aperture.jpg', dji_speed_max_aperture),
+	('dji-makernote-little-endian.jpg', dji_makernote_little_endian),
 )
 
 
 def main():
 	outdir = os.path.dirname(os.path.abspath(__file__))
 	for name, build in SAMPLES:
-		data = jpeg(build())
+		# a builder returns one APP1 payload, or a tuple of them (e.g. EXIF + XMP)
+		payloads = build()
+		data = jpeg(*payloads) if isinstance(payloads, tuple) else jpeg(payloads)
 		path = os.path.join(outdir, name)
 		with open(path, 'wb') as fh:
 			fh.write(data)

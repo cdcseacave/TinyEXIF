@@ -13,6 +13,7 @@ ExposureProgram 1
 ISOSpeed 100
 ShutterSpeedValue 0
 ApertureValue 0
+MaxApertureValue 4
 BrightnessValue -2.04921875
 ExposureBiasValue 0
 SubjectDistance 0

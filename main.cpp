@@ -77,6 +77,8 @@ int main(int argc, const char** argv)
 	std::cout << "ISOSpeed " << imageEXIF.ISOSpeedRatings << "\n";
 	std::cout << "ShutterSpeedValue " << std::setprecision(10) << imageEXIF.ShutterSpeedValue << "\n";
 	std::cout << "ApertureValue " << std::setprecision(10) << imageEXIF.ApertureValue << "\n";
+	if (imageEXIF.HasField(TinyEXIF::FIELD_ID_MaxApertureValue))
+		std::cout << "MaxApertureValue " << std::setprecision(10) << imageEXIF.MaxApertureValue << "\n";
 	std::cout << "BrightnessValue " << std::setprecision(10) << imageEXIF.BrightnessValue << "\n";
 	std::cout << "ExposureBiasValue " << imageEXIF.ExposureBiasValue << "\n";
 	std::cout << "SubjectDistance " << imageEXIF.SubjectDistance << "\n";

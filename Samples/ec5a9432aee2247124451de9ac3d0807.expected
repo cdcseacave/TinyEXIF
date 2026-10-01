@@ -14,6 +14,7 @@ ExposureProgram 2
 ISOSpeed 100
 ShutterSpeedValue 0.001810997161
 ApertureValue 2.799171731
+MaxApertureValue 1.414213562
 BrightnessValue 0
 ExposureBiasValue 0
 SubjectDistance 0
