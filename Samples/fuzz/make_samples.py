@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Generator for the crafted regression samples in Samples/fuzz/.
 
-These are not real photos: each one is a minimal JPEG whose APP1/EXIF segment is
-built to hit one specific out-of-bounds read or undefined-behavior conversion
-that the parser used to perform.
+These are not real photos: each one is a minimal JPEG whose APP1 EXIF or XMP
+segment is built to hit one specific out-of-bounds read, undefined-behavior
+conversion or non-finite value that the parser used to perform or store.
 They are checked in together with this generator so that the bytes stay
 reviewable instead of being an opaque blob; re-run it to regenerate them:
 
@@ -11,6 +11,10 @@ reviewable instead of being an opaque blob; re-run it to regenerate them:
 
 Every sample is expected to parse without any sanitizer report and without
 inventing fields. See Samples/fuzz/<name>.expected for the baseline output.
+
+One sample is not generated here: poc-y1bit-rational-oob.jpg is the original
+190-byte input from y1bit's report of the EntryParser::Fetch(double&)
+out-of-bounds read fixed in 1.1.0, checked in byte for byte as received.
 
 All samples use Motorola ("MM", big-endian) byte order so the crafted values
 below read the same way they are written.
@@ -31,6 +35,9 @@ FMT_LONG = 4
 FMT_RATIONAL = 5
 FMT_UNDEFINED = 7
 FMT_SRATIONAL = 10
+FMT_FLOAT = 11
+
+XMP_ID = b'http://ns.adobe.com/xap/1.0/\x00'  # APP1 XMP identifier
 
 
 def entry(tag, fmt, count, value):
@@ -198,6 +205,78 @@ def exposure_index_negative():
 	return exposure_index(FMT_SRATIONAL, -1)
 
 
+def apex_overflow():
+	"""parseIFDExif(), tags 0x9201/0x9202: APEX conversions overflowing to inf.
+
+	ShutterSpeedValue and ApertureValue are base-2 logarithms converted with exp():
+	an SRATIONAL shutter speed of INT32_MIN makes 1/exp() divide by an underflowed
+	zero, and a RATIONAL aperture of UINT32_MAX overflows exp(); both used to be
+	stored as +inf. The two rationals are stored right after the IFD.
+	"""
+	values_offset = len(TIFF_HEADER) + 4 + len(ifd([b'\x00' * IFD_ENTRY_SIZE] * 2))
+	body = ifd([
+		entry(0x9201, FMT_SRATIONAL, 1, struct.pack('>I', values_offset)),
+		entry(0x9202, FMT_RATIONAL, 1, struct.pack('>I', values_offset + 8)),
+	])
+	return exif_payload(body + struct.pack('>iI', -2**31, 1) + struct.pack('>II', 2**32 - 1, 1))
+
+
+def makernote_float_nonfinite():
+	"""parseIFDMakerNote(): DJI FLOAT entries carrying NaN and infinity bit patterns.
+
+	A FLOAT is raw IEEE 754 bits, so a file can encode NaN or inf directly; they used
+	to be stored in the GeoLocation speed and orientation fields, which then read back
+	as present through their DBL_MAX sentinels. Only SpeedZ, Yaw and Roll are finite.
+	"""
+	floats = (
+		(3, 0x7fc00000),  # SpeedX: NaN
+		(4, 0x7f800000),  # SpeedY: +inf
+		(5, 0x3f800000),  # SpeedZ: 1.0
+		(9, 0xff800000),  # Pitch: -inf
+		(10, 0x40000000), # Yaw: 2.0
+		(11, 0x40400000), # Roll: 3.0
+	)
+	note = ifd([entry(1, FMT_ASCII, 4, b'DJI\x00')] +
+		[entry(tag, FMT_FLOAT, 1, struct.pack('>I', bits)) for tag, bits in floats])
+	note_offset = len(TIFF_HEADER) + 4 + len(ifd([b'\x00' * IFD_ENTRY_SIZE] * 2))
+	body = ifd([
+		entry(0x010f, FMT_ASCII, 4, b'DJI\x00'),
+		entry(0x927c, FMT_UNDEFINED, len(note), struct.pack('>I', note_offset)),
+	])
+	return exif_payload(body + note)
+
+
+def xmp_nonfinite():
+	"""parseFromXMPSegmentXML(): XMP numbers that are not finite.
+
+	XMP numbers are text, and strtod (like the sscanf behind tinyxml2's
+	QueryDoubleAttribute) accepts "nan", "inf" and out-of-range literals, while a
+	rational with a zero denominator divides to inf or NaN. Every one of them used to
+	be stored and read back as present through the DBL_MAX sentinels. The one valid
+	value, tiff:YResolution, is a well-formed rational that must still parse: 144/2
+	is 72, where the old sscanf read stopped at the slash and returned 144.
+	"""
+	xml = (
+		'<x:xmpmeta xmlns:x="adobe:ns:meta/">'
+		'<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+		'<rdf:Description rdf:about="DJI Meta Data"'
+		' xmlns:drone-dji="http://www.dji.com/drone-dji/1.0/"'
+		' xmlns:tiff="http://ns.adobe.com/tiff/1.0/"'
+		' xmlns:GPano="http://ns.google.com/photos/1.0/panorama/"'
+		' drone-dji:AbsoluteAltitude="1/0"'
+		' drone-dji:RelativeAltitude="0/0"'
+		' drone-dji:GimbalRollDegree="nan"'
+		' drone-dji:GimbalPitchDegree="-inf"'
+		' drone-dji:GimbalYawDegree="1e999"'
+		' drone-dji:CalibratedFocalLength="inf"'
+		' drone-dji:DewarpData="2026-09-26;1,2,3,4,nan,0.1,0.2,0.3,0.4"'
+		' tiff:XResolution="inf" tiff:YResolution="144/2" tiff:ResolutionUnit="2"'
+		' GPano:PosePitchDegrees="nan" GPano:PoseRollDegrees="1/0"/>'
+		'</rdf:RDF></x:xmpmeta>'
+	)
+	return XMP_ID + xml.encode('ascii')
+
+
 SAMPLES = (
 	('poc-rational-oob.jpg', rational_oob),
 	('poc-makernote-oob.jpg', makernote_oob),
@@ -208,6 +287,9 @@ SAMPLES = (
 	('poc-subjectarea-count-wrap.jpg', subjectarea_count_wrap),
 	('poc-exposureindex-overflow.jpg', exposure_index_overflow),
 	('poc-exposureindex-negative.jpg', exposure_index_negative),
+	('poc-apex-overflow.jpg', apex_overflow),
+	('poc-makernote-float-nonfinite.jpg', makernote_float_nonfinite),
+	('poc-xmp-nonfinite.jpg', xmp_nonfinite),
 )
 
 

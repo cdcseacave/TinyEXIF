@@ -29,13 +29,40 @@ this project uses [Semantic Versioning](https://semver.org/).
   `TINYEXIF_NO_XMP_SUPPORT` no longer warn about the XMP-only string helpers.
   A new CI job compiles with gcc 16 `-Wall -Wextra -Werror` at every
   optimization level, with and without XMP. Reported by @heitbaum. (#30)
+- XMP `tiff:XResolution` / `tiff:YResolution` are rationals (`"300/1"`), but
+  were read with a parser that stopped at the slash, so `"144/2"` came back as
+  144 instead of 72. They now go through the same rational parser as the other
+  XMP numbers.
+- `TestSamples.py --update` aborted on the corpus's own error samples, mistaking
+  the demo's 253..255 exit codes for signal deaths.
+
+### Security
+
+Three privately reported advisories, all low severity: none is a memory-safety
+issue, but each lets a crafted file put an invalid value into a parsed field.
+Every floating point field is now guaranteed to be finite: a value that is not
+leaves the field absent, so `HasField()` and the `hasXxx()` accessors report it
+as such.
+
 - Undefined behavior converting an out-of-range `ExposureIndex` to
   `ISOSpeedRatings`: a negative index now leaves `ISOSpeedRatings` absent and
   one above 65535 is clamped to 65535, as EXIF records ISO. The sanitizer job
   now enables `float-cast-overflow`, which gcc leaves out of
-  `-fsanitize=undefined`.
-- `TestSamples.py --update` aborted on the corpus's own error samples, mistaking
-  the demo's 253..255 exit codes for signal deaths.
+  `-fsanitize=undefined`. Reported by @ruben0315R, crediting @Magashwarahan
+  for the variant discovery. (GHSA-jqfq-fwfw-xc8x)
+- XMP rationals with a zero denominator (`"1/0"`, `"0/0"`) divided to inf or
+  NaN, which read back as present through the `DBL_MAX` sentinels and pass any
+  range check, as every comparison with NaN is false. The same values also
+  came from the `"nan"`, `"inf"` and out-of-range literals that `strtod` and
+  tinyxml2 accept, including in `DewarpData` and `tiff:X/YResolution`; every
+  XMP number now goes through one parser that rejects all of them. Reported by
+  Ruben Arumugam Gunavathy (@ruben0315R). (GHSA-rvfv-gvcj-m5f5)
+- The APEX conversions of `ShutterSpeedValue` and `ApertureValue` overflowed to
+  +inf for values far outside any camera's range, e.g. a shutter speed of
+  `INT32_MIN`. Found in the same audit: a DJI MakerNote `FLOAT` is raw IEEE 754
+  bits and could carry NaN or inf straight into the GeoLocation speed and
+  orientation fields. Reported by Ruben Arumugam Gunavathy (@ruben0315R).
+  (GHSA-pgrm-rwjh-553p)
 
 ## [1.1.0] - 2026-08-23
 
@@ -84,13 +111,16 @@ this project uses [Semantic Versioning](https://semver.org/).
 
 Published as security advisory
 [GHSA-jqj2-8c2j-gx82](https://github.com/cdcseacave/TinyEXIF/security/advisories/GHSA-jqj2-8c2j-gx82)
-(High). Every issue below is reachable by handing the library a crafted JPEG,
-and there is no workaround other than upgrading.
+(High), [CVE-2026-38332](https://nvd.nist.gov/vuln/detail/CVE-2026-38332).
+Every issue below is reachable by handing the library a crafted JPEG, and
+there is no workaround other than upgrading.
 
 - Bounds-checked every attacker-controlled buffer read reachable through
   `EntryParser::Fetch`, `ParseTag()`, MakerNote parsing, and the EXIF
   segment offset walk, closing a reported crash in `Fetch(double&)`, which
-  previously had no bounds check at all. Reported by **doopal**.
+  previously had no bounds check at all. Reported by
+  [y1bit](https://github.com/y1bit), whose original input is now in the
+  regression corpus as `Samples/fuzz/poc-y1bit-rational-oob.jpg`.
 - Fixed an unbounded allocation from an attacker-controlled `SubjectArea`
   component count: a single crafted 12-byte IFD entry could drive a
   multi-gigabyte `std::vector::resize()` from a file a few dozen bytes

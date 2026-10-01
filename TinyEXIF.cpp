@@ -66,6 +66,19 @@ namespace Tools {
 		}
 	}
 
+	// parse a decimal number out of untrusted XMP text; fails on text that does not
+	// start with one, on a value out of range, and on the "nan" and "inf" that strtod
+	// accepts as well, so that the result is always a finite number
+	static bool strToDouble(const char* str, double& value) {
+		char* end(NULL);
+		errno = 0;
+		const double parsed(strtod(str, &end));
+		if (end == str || errno == ERANGE || !std::isfinite(parsed))
+			return false;
+		value = parsed;
+		return true;
+	}
+
 	// make sure the given degrees value is between -180 and 180
 	static double NormD180(double d) {
 		return (d = fmod(d+180.0, 360.0)) < 0 ? d+180.0 : d-180.0;
@@ -143,6 +156,18 @@ enum JPEG_MARKERS {
 	JM_JPG13 = 0xFD,
 	JM_COM   = 0xFE
 };
+
+
+// Store 'value' in 'field' only if it is finite. Every floating point field must hold
+// a finite value or none: inf and NaN from a crafted file would otherwise read back as
+// present, since they differ from the DBL_MAX "absent" sentinel, and NaN slips through
+// any range check a caller applies, as every comparison with it is false.
+static bool AssignFinite(double& field, double value) {
+	if (!std::isfinite(value))
+		return false;
+	field = value;
+	return true;
+}
 
 
 // Parser helper
@@ -243,7 +268,11 @@ public:
 	bool Fetch(float& val) const {
 		if (!IsFloat() || length == 0)
 			return false;
-		val = parseFloat(buf + offs + 8, alignIntel);
+		// a FLOAT is raw IEEE 754 bits, so the file can encode inf or NaN directly
+		const float value(parseFloat(buf + offs + 8, alignIntel));
+		if (!std::isfinite(value))
+			return false;
+		val = value;
 		return true;
 	}
 	bool Fetch(double& val) const {
@@ -635,20 +664,24 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 		SetFieldIf(FIELD_ID_DateTimeDigitized, parser.Fetch(DateTimeDigitized));
 		break;
 
-	case 0x9201:
-		// Shutter speed value
-		// the APEX to seconds conversion only runs on a value that was really
-		// fetched: applied to the untouched 0 it would yield a plausible 1s
-		if (SetFieldIf(FIELD_ID_ShutterSpeedValue, parser.Fetch(ShutterSpeedValue)))
-			ShutterSpeedValue = 1.0/exp(ShutterSpeedValue*log(2));
+	case 0x9201: {
+		// Shutter speed value, converted from APEX to seconds
+		// the conversion only runs on a value that was really fetched: applied to the
+		// untouched 0 it would yield a plausible 1s; and its result is only kept when
+		// finite: an APEX value far outside any camera's range underflows exp() to 0
+		double apex(0);
+		SetFieldIf(FIELD_ID_ShutterSpeedValue, parser.Fetch(apex) && AssignFinite(ShutterSpeedValue, 1.0/exp(apex*log(2))));
 		break;
+	}
 
-	case 0x9202:
-		// Aperture value
-		// as above: the untouched 0 would convert to a plausible f/1
-		if (SetFieldIf(FIELD_ID_ApertureValue, parser.Fetch(ApertureValue)))
-			ApertureValue = exp(ApertureValue*log(2)*0.5);
+	case 0x9202: {
+		// Aperture value, converted from APEX to an f-number
+		// as above: the untouched 0 would convert to a plausible f/1, and an APEX
+		// value far outside any lens's range overflows exp() to inf
+		double apex(0);
+		SetFieldIf(FIELD_ID_ApertureValue, parser.Fetch(apex) && AssignFinite(ApertureValue, exp(apex*log(2)*0.5)));
 		break;
+	}
 
 	case 0x9203:
 		// Brightness value
@@ -1233,31 +1266,10 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		(document=document->FirstChildElement("rdf:Description")) == NULL)
 		return PARSE_ABSENT_DATA;
 
-	// Try parsing the XMP content for tiff details.
-	// these fill the same fields as their EXIF counterparts, so either source
-	// finding one counts as present
-	if (Orientation == 0) {
-		uint32_t _Orientation(0);
-		SetFieldIf(FIELD_ID_Orientation, document->QueryUnsignedAttribute("tiff:Orientation", &_Orientation) == tinyxml2::XML_SUCCESS);
-		Orientation = (uint16_t)_Orientation;
-	}
-	if (ImageWidth == 0 && ImageHeight == 0) {
-		SetFieldIf(FIELD_ID_ImageWidth, document->QueryUnsignedAttribute("tiff:ImageWidth", &ImageWidth) == tinyxml2::XML_SUCCESS);
-		if (!SetFieldIf(FIELD_ID_ImageHeight, document->QueryUnsignedAttribute("tiff:ImageHeight", &ImageHeight) == tinyxml2::XML_SUCCESS))
-			SetFieldIf(FIELD_ID_ImageHeight, document->QueryUnsignedAttribute("tiff:ImageLength", &ImageHeight) == tinyxml2::XML_SUCCESS);
-	}
-	if (XResolution == 0 && YResolution == 0 && ResolutionUnit == 0) {
-		SetFieldIf(FIELD_ID_XResolution, document->QueryDoubleAttribute("tiff:XResolution", &XResolution) == tinyxml2::XML_SUCCESS);
-		SetFieldIf(FIELD_ID_YResolution, document->QueryDoubleAttribute("tiff:YResolution", &YResolution) == tinyxml2::XML_SUCCESS);
-		uint32_t _ResolutionUnit(0);
-		SetFieldIf(FIELD_ID_ResolutionUnit, document->QueryUnsignedAttribute("tiff:ResolutionUnit", &_ResolutionUnit) == tinyxml2::XML_SUCCESS);
-		ResolutionUnit = (uint16_t)_ResolutionUnit;
-	}
-
-	// Try parsing the XMP content for supported maker's info.
 	struct ParseXMP	{
 		// try yo fetch the value both from the attribute and child element
-		// and parse if needed rational numbers stored as string fraction
+		// and parse if needed rational numbers stored as string fraction;
+		// only a finite result is stored: a zero denominator divides to inf or NaN
 		static bool Value(const tinyxml2::XMLElement* document, const char* name, double& value) {
 			const char* szAttribute = document->Attribute(name);
 			if (szAttribute == NULL) {
@@ -1267,9 +1279,12 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 			}
 			std::vector<std::string> values;
 			Tools::strSplit(szAttribute, '/', values);
+			double numerator(0), denominator(0);
 			switch (values.size()) {
-			case 1: value = strtod(values.front().c_str(), NULL); return true;
-			case 2: value = strtod(values.front().c_str(), NULL)/strtod(values.back().c_str(), NULL); return true;
+			case 1: return Tools::strToDouble(values.front().c_str(), value);
+			case 2: return Tools::strToDouble(values.front().c_str(), numerator) &&
+				Tools::strToDouble(values.back().c_str(), denominator) &&
+				AssignFinite(value, numerator/denominator);
 			}
 			return false;
 		}
@@ -1377,6 +1392,30 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 			return false;
 		}
 	};
+
+	// Try parsing the XMP content for tiff details.
+	// these fill the same fields as their EXIF counterparts, so either source
+	// finding one counts as present; the resolutions are XMP rationals ("300/1"),
+	// which tinyxml2's QueryDoubleAttribute would cut at the slash
+	if (Orientation == 0) {
+		uint32_t _Orientation(0);
+		SetFieldIf(FIELD_ID_Orientation, document->QueryUnsignedAttribute("tiff:Orientation", &_Orientation) == tinyxml2::XML_SUCCESS);
+		Orientation = (uint16_t)_Orientation;
+	}
+	if (ImageWidth == 0 && ImageHeight == 0) {
+		SetFieldIf(FIELD_ID_ImageWidth, document->QueryUnsignedAttribute("tiff:ImageWidth", &ImageWidth) == tinyxml2::XML_SUCCESS);
+		if (!SetFieldIf(FIELD_ID_ImageHeight, document->QueryUnsignedAttribute("tiff:ImageHeight", &ImageHeight) == tinyxml2::XML_SUCCESS))
+			SetFieldIf(FIELD_ID_ImageHeight, document->QueryUnsignedAttribute("tiff:ImageLength", &ImageHeight) == tinyxml2::XML_SUCCESS);
+	}
+	if (XResolution == 0 && YResolution == 0 && ResolutionUnit == 0) {
+		SetFieldIf(FIELD_ID_XResolution, ParseXMP::Value(document, "tiff:XResolution", XResolution));
+		SetFieldIf(FIELD_ID_YResolution, ParseXMP::Value(document, "tiff:YResolution", YResolution));
+		uint32_t _ResolutionUnit(0);
+		SetFieldIf(FIELD_ID_ResolutionUnit, document->QueryUnsignedAttribute("tiff:ResolutionUnit", &_ResolutionUnit) == tinyxml2::XML_SUCCESS);
+		ResolutionUnit = (uint16_t)_ResolutionUnit;
+	}
+
+	// Try parsing the XMP content for supported maker's info.
 	const char* szAbout(document->Attribute("rdf:about"));
 	if (0 == strcasecmp(Make.c_str(), "DJI") || (szAbout != NULL && 0 == strcasecmp(szAbout, "DJI Meta Data"))) {
 		SetFieldIf(FIELD_ID_GeoLocation_Altitude, ParseXMP::Value(document, "drone-dji:AbsoluteAltitude", GeoLocation.Altitude));
@@ -1401,11 +1440,8 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 				// std::stod throws on a non-numeric or an out-of-range item, an exception
 				// nothing between here and parseFrom() catches - it would abort the
 				// process instead of returning one of the documented error codes
-				const char* const szItem(item.c_str());
-				char* szEnd(NULL);
-				errno = 0;
-				const double value(strtod(szItem, &szEnd));
-				if (szEnd == szItem || errno == ERANGE) {
+				double value(0);
+				if (!Tools::strToDouble(item.c_str(), value)) {
 					// one malformed item invalidates the whole list, so that the
 					// distortion fields stay absent instead of half populated
 					distortionParams.clear();

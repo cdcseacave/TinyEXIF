@@ -77,6 +77,8 @@ enum FieldCode {
 // XMP equivalents write the same member, and either source setting it counts
 // as present. Note that FieldCode above (FIELD_EXIF/FIELD_XMP) is a different
 // thing: it says which segment was found, not which tags were parsed.
+// A floating point field only ever holds a finite value: a tag whose value is
+// NaN or infinite, or converts to one, is treated as malformed and left absent.
 // New enumerators are appended before FIELD_ID_COUNT, so the numeric value of
 // an existing one never changes.
 enum FieldID {

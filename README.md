@@ -58,6 +58,8 @@ There is one `FieldID` enumerator per data field, named `FIELD_ID_` followed by 
 member it fills, e.g. `FIELD_ID_GeoLocation_Altitude` for `GeoLocation.Altitude`; `FieldName()`
 returns that path as a string. A field counts as present when the tag carrying it was parsed
 successfully, from EXIF or from XMP; a tag that is present but malformed does not count.
+That includes any floating point value that is NaN or infinite, or converts to one, so every
+floating point field holds a finite number or is absent.
 Existing fields, sentinel values (`DBL_MAX`, `UINT32_MAX`) and `hasXxx()` accessors are
 unchanged, so this is purely additive.
 
