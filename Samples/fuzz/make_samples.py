@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
 """Generator for the crafted regression samples in Samples/fuzz/.
 
-These are not real photos: each one is a minimal JPEG whose APP1/EXIF segment is
-built to hit one specific out-of-bounds read that the parser used to perform.
+These are not real photos: each one is a minimal JPEG whose APP1 EXIF and/or
+XMP segments, and APP2 MPF index, are built to pin one specific parser
+behavior. The poc-* samples hit an out-of-bounds read, undefined-behavior
+conversion, non-finite value or offset overflow that the parser used to
+perform or store, or that a new parser must not; the others cover corners of
+the format that real files reach (a GPS without a fix, mixed byte orders,
+images stored after the first one).
 They are checked in together with this generator so that the bytes stay
 reviewable instead of being an opaque blob; re-run it to regenerate them:
 
@@ -11,8 +16,13 @@ reviewable instead of being an opaque blob; re-run it to regenerate them:
 Every sample is expected to parse without any sanitizer report and without
 inventing fields. See Samples/fuzz/<name>.expected for the baseline output.
 
-All samples use Motorola ("MM", big-endian) byte order so the crafted values
-below read the same way they are written.
+One sample is not generated here: poc-y1bit-rational-oob.jpg is the original
+190-byte input from y1bit's report of the EntryParser::Fetch(double&)
+out-of-bounds read fixed in 1.1.0, checked in byte for byte as received.
+
+All EXIF uses Motorola ("MM", big-endian) byte order so the crafted values
+below read the same way they are written. The MPF index states a byte order
+of its own, Intel ("II") unless a sample says otherwise, as cameras write it.
 """
 import os
 import struct
@@ -29,17 +39,21 @@ FMT_SHORT = 3
 FMT_LONG = 4
 FMT_RATIONAL = 5
 FMT_UNDEFINED = 7
+FMT_SRATIONAL = 10
+FMT_FLOAT = 11
+
+XMP_ID = b'http://ns.adobe.com/xap/1.0/\x00'  # APP1 XMP identifier
 
 
-def entry(tag, fmt, count, value):
+def entry(tag, fmt, count, value, order='>'):
 	"""One 12-byte IFD entry; `value` is the raw 4-byte value/offset field."""
 	assert len(value) == 4
-	return struct.pack('>HHI', tag, fmt, count) + value
+	return struct.pack(order + 'HHI', tag, fmt, count) + value
 
 
-def ifd(entries):
+def ifd(entries, order='>'):
 	"""An IFD: entry count followed by the entries (no next-IFD offset)."""
-	return struct.pack('>H', len(entries)) + b''.join(entries)
+	return struct.pack(order + 'H', len(entries)) + b''.join(entries)
 
 
 def exif_payload(body, first_ifd_offset=len(TIFF_HEADER) + 4):
@@ -51,11 +65,52 @@ def exif_payload(body, first_ifd_offset=len(TIFF_HEADER) + 4):
 	return EXIF_ID + TIFF_HEADER + struct.pack('>I', first_ifd_offset) + body
 
 
-def jpeg(payload):
-	"""SOI + APP1(payload) + EOI -- the smallest container the parser accepts."""
+def jpeg(*payloads):
+	"""SOI + one APP1 per payload + EOI -- the smallest container the parser accepts."""
 	return (b'\xff\xd8' +
-		b'\xff\xe1' + struct.pack('>H', len(payload) + 2) + payload +
+		b''.join(b'\xff\xe1' + struct.pack('>H', len(p) + 2) + p for p in payloads) +
 		b'\xff\xd9')
+
+
+def rational(numerator, denominator=1):
+	"""The 8 raw bytes of one RATIONAL."""
+	return struct.pack('>II', numerator, denominator)
+
+
+def ifd_at(offset, fields, order='>'):
+	"""An IFD placed at TIFF `offset`, followed by the values too large for an entry.
+
+	`fields` are (tag, format, count, raw value bytes); a value of up to 4 bytes is
+	stored in its entry, a longer one after the IFD with the entry pointing to it.
+	Unlike ifd(), this ends the IFD with a (zero) next-IFD offset, as real files do.
+	"""
+	data_offset = offset + 2 + IFD_ENTRY_SIZE * len(fields) + 4
+	entries, data = [], b''
+	for tag, fmt, count, value in fields:
+		if len(value) <= 4:
+			entries.append(entry(tag, fmt, count, value.ljust(4, b'\x00'), order))
+		else:
+			entries.append(entry(tag, fmt, count, struct.pack(order + 'I', data_offset + len(data)), order))
+			data += value
+	return ifd(entries, order) + struct.pack(order + 'I', 0) + data
+
+
+def exif_with_subifd(pointer_tag, fields):
+	"""EXIF payload whose IFD0 holds only a pointer (`pointer_tag`) to one sub-IFD."""
+	ifd0_offset = len(TIFF_HEADER) + 4
+	sub_offset = ifd0_offset + 2 + IFD_ENTRY_SIZE + 4
+	ifd0 = ifd_at(ifd0_offset, [(pointer_tag, FMT_LONG, 1, struct.pack('>I', sub_offset))])
+	return exif_payload(ifd0 + ifd_at(sub_offset, fields))
+
+
+def xmp(attributes):
+	"""XMP payload: one rdf:Description carrying `attributes`, an XML attribute string."""
+	return XMP_ID + (
+		'<x:xmpmeta xmlns:x="adobe:ns:meta/">'
+		'<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+		'<rdf:Description' + attributes + '/>'
+		'</rdf:RDF></x:xmpmeta>'
+	).encode('ascii')
 
 
 def rational_oob():
@@ -174,6 +229,359 @@ def subjectarea_count_wrap():
 	return exif_payload(body)
 
 
+def exposure_index(fmt, numerator):
+	"""parseIFDExif(), tag 0xa215 (ExposureIndex): a double cast to uint16_t unchecked.
+
+	ExposureIndex fills ISOSpeedRatings, a uint16_t, from a (S)RATIONAL; converting
+	a double the target type can not represent is undefined behavior, which UBSan
+	reports as float-cast-overflow. The rational is stored right after the IFD.
+	"""
+	value_offset = len(TIFF_HEADER) + 4 + len(ifd([b'\x00' * IFD_ENTRY_SIZE]))
+	body = ifd([entry(0xa215, fmt, 1, struct.pack('>I', value_offset))])
+	return exif_payload(body + struct.pack('>iI' if fmt == FMT_SRATIONAL else '>II', numerator, 1))
+
+
+def exposure_index_overflow():
+	"""ExposureIndex 100000, above uint16_t: clamped to 65535, as EXIF records ISO."""
+	return exposure_index(FMT_RATIONAL, 100000)
+
+
+def exposure_index_negative():
+	"""ExposureIndex -1, below uint16_t: not a valid index, so ISOSpeedRatings stays absent."""
+	return exposure_index(FMT_SRATIONAL, -1)
+
+
+def apex_overflow():
+	"""parseIFDExif(), tags 0x9201/0x9202: APEX conversions overflowing to inf.
+
+	ShutterSpeedValue and ApertureValue are base-2 logarithms converted with exp():
+	an SRATIONAL shutter speed of INT32_MIN makes 1/exp() divide by an underflowed
+	zero, and a RATIONAL aperture of UINT32_MAX overflows exp(); both used to be
+	stored as +inf. The two rationals are stored right after the IFD.
+	"""
+	values_offset = len(TIFF_HEADER) + 4 + len(ifd([b'\x00' * IFD_ENTRY_SIZE] * 2))
+	body = ifd([
+		entry(0x9201, FMT_SRATIONAL, 1, struct.pack('>I', values_offset)),
+		entry(0x9202, FMT_RATIONAL, 1, struct.pack('>I', values_offset + 8)),
+	])
+	return exif_payload(body + struct.pack('>iI', -2**31, 1) + struct.pack('>II', 2**32 - 1, 1))
+
+
+def makernote_float_nonfinite():
+	"""parseIFDMakerNote(): DJI FLOAT entries carrying NaN and infinity bit patterns.
+
+	A FLOAT is raw IEEE 754 bits, so a file can encode NaN or inf directly; they used
+	to be stored in the GeoLocation speed and orientation fields, which then read back
+	as present through their DBL_MAX sentinels. Only SpeedZ, Yaw and Roll are finite.
+	"""
+	floats = (
+		(3, 0x7fc00000),  # SpeedX: NaN
+		(4, 0x7f800000),  # SpeedY: +inf
+		(5, 0x3f800000),  # SpeedZ: 1.0
+		(9, 0xff800000),  # Pitch: -inf
+		(10, 0x40000000), # Yaw: 2.0
+		(11, 0x40400000), # Roll: 3.0
+	)
+	note = ifd([entry(1, FMT_ASCII, 4, b'DJI\x00')] +
+		[entry(tag, FMT_FLOAT, 1, struct.pack('>I', bits)) for tag, bits in floats])
+	note_offset = len(TIFF_HEADER) + 4 + len(ifd([b'\x00' * IFD_ENTRY_SIZE] * 2))
+	body = ifd([
+		entry(0x010f, FMT_ASCII, 4, b'DJI\x00'),
+		entry(0x927c, FMT_UNDEFINED, len(note), struct.pack('>I', note_offset)),
+	])
+	return exif_payload(body + note)
+
+
+def xmp_nonfinite():
+	"""parseFromXMPSegmentXML(): XMP numbers that are not finite.
+
+	XMP numbers are text, and strtod (like the sscanf behind tinyxml2's
+	QueryDoubleAttribute) accepts "nan", "inf" and out-of-range literals, while a
+	rational with a zero denominator divides to inf or NaN. Every one of them used to
+	be stored and read back as present through the DBL_MAX sentinels. The one valid
+	value, tiff:YResolution, is a well-formed rational that must still parse: 144/2
+	is 72, where the old sscanf read stopped at the slash and returned 144.
+	"""
+	return xmp(
+		' rdf:about="DJI Meta Data"'
+		' xmlns:drone-dji="http://www.dji.com/drone-dji/1.0/"'
+		' xmlns:tiff="http://ns.adobe.com/tiff/1.0/"'
+		' xmlns:GPano="http://ns.google.com/photos/1.0/panorama/"'
+		' drone-dji:AbsoluteAltitude="1/0"'
+		' drone-dji:RelativeAltitude="0/0"'
+		' drone-dji:GimbalRollDegree="nan"'
+		' drone-dji:GimbalPitchDegree="-inf"'
+		' drone-dji:GimbalYawDegree="1e999"'
+		' drone-dji:CalibratedFocalLength="inf"'
+		' drone-dji:DewarpData="2026-09-26;1,2,3,4,nan,0.1,0.2,0.3,0.4"'
+		' tiff:XResolution="inf" tiff:YResolution="144/2" tiff:ResolutionUnit="2"'
+		' GPano:PosePitchDegrees="nan" GPano:PoseRollDegrees="1/0"'
+	)
+
+
+def xmp_trailing_text():
+	"""ParseXMP::Value() and the tiff: integers: XMP numbers followed by other text.
+
+	strtod, strtoull and the sscanf behind tinyxml2's QueryUnsignedAttribute all
+	stop at the first character they can not use and report the number before it,
+	so "12junk" read as 12, "1e/2" as 1/2, and "-1" as 4294967295 for an unsigned
+	field. Each must now be absent, while surrounding whitespace stays accepted:
+	the calibrated focal length and the resolution unit are valid. An orientation
+	beyond 16 bits is out of range rather than truncated.
+	"""
+	return xmp(
+		' rdf:about="DJI Meta Data"'
+		' xmlns:drone-dji="http://www.dji.com/drone-dji/1.0/"'
+		' xmlns:tiff="http://ns.adobe.com/tiff/1.0/"'
+		' drone-dji:AbsoluteAltitude="12junk"'
+		' drone-dji:RelativeAltitude="1e/2"'
+		' drone-dji:CalibratedFocalLength=" 3666.5 "'
+		' drone-dji:DewarpFlag="1x"'
+		' tiff:ImageWidth="-1" tiff:ImageHeight="480px"'
+		' tiff:Orientation="70000" tiff:ResolutionUnit=" 2 "'
+	)
+
+
+# GPS IFD tags (EXIF 2.3, 4.6.6)
+GPS_LATITUDE_REF, GPS_LATITUDE = 1, 2
+GPS_LONGITUDE_REF, GPS_LONGITUDE = 3, 4
+GPS_ALTITUDE_REF, GPS_ALTITUDE = 5, 6
+GPS_STATUS = 9
+GPS_MAP_DATUM = 18
+GPS_IFD_POINTER = 0x8825
+EXIF_IFD_POINTER = 0x8769
+
+
+def gps_at_origin(status, altitude_ref):
+	"""GPS fields of a receiver at 0/0/0 on the south/west side, like a camera
+	with no fix writes them (DJI Osmo 360), with the given GPSStatus."""
+	zero = rational(0) * 3
+	return [
+		(GPS_LATITUDE_REF, FMT_ASCII, 2, b'S\x00'),
+		(GPS_LATITUDE, FMT_RATIONAL, 3, zero),
+		(GPS_LONGITUDE_REF, FMT_ASCII, 2, b'W\x00'),
+		(GPS_LONGITUDE, FMT_RATIONAL, 3, zero),
+		(GPS_ALTITUDE_REF, 1, 1, bytes([altitude_ref])),
+		(GPS_ALTITUDE, FMT_RATIONAL, 1, rational(0)),
+		(GPS_STATUS, FMT_ASCII, 2, status + b'\x00'),
+		(GPS_MAP_DATUM, FMT_ASCII, 7, b'WGS-84\x00'),
+	]
+
+
+def gps_void():
+	"""GPSStatus 'V': the receiver had no fix, so its zero position is not one.
+
+	Cameras without a fix still write the position tags, all zeros, and parsing
+	them would place the image at 0N 0E. With the measurement void they must
+	come back absent, along with the DJI XMP AbsoluteAltitude, which DJI marks
+	invalid through drone-dji:GpsStatus the same way; the map datum and the
+	barometric RelativeAltitude do not depend on a fix and stay.
+	"""
+	return (
+		exif_with_subifd(GPS_IFD_POINTER, gps_at_origin(b'V', 0)),
+		xmp(' rdf:about="DJI Meta Data"'
+			' xmlns:drone-dji="http://www.dji.com/drone-dji/1.0/"'
+			' drone-dji:GpsStatus="Invalid"'
+			' drone-dji:AbsoluteAltitude="+0.000"'
+			' drone-dji:RelativeAltitude="+1.500"'),
+	)
+
+
+def gps_signed_zero():
+	"""GPSStatus 'A' at 0/0/0 with the south, west and below-sea-level refs.
+
+	Negating a zero gives IEEE 754 -0.0, which prints as "-0"; a position on the
+	equator, the prime meridian or at sea level must read back as plain 0.
+	"""
+	return exif_with_subifd(GPS_IFD_POINTER, gps_at_origin(b'A', 1))
+
+
+def dji_speed_max_aperture():
+	"""DJI XMP flight speed and the EXIF MaxApertureValue, both parsed since 1.2.0.
+
+	MaxApertureValue is APEX like ApertureValue: 1.85 is f/1.9 (2^(1.85/2)).
+	The speeds come from the XMP only, as cameras without the DJI MakerNote
+	(e.g. the Osmo 360) write them nowhere else.
+	"""
+	return (
+		exif_with_subifd(EXIF_IFD_POINTER, [(0x9205, FMT_RATIONAL, 1, rational(185, 100))]),
+		xmp(' rdf:about="DJI Meta Data"'
+			' xmlns:drone-dji="http://www.dji.com/drone-dji/1.0/"'
+			' drone-dji:FlightXSpeed="+1.50"'
+			' drone-dji:FlightYSpeed="-2.25"'
+			' drone-dji:FlightZSpeed="0.5"'),
+	)
+
+
+def dji_makernote_little_endian():
+	"""A little-endian DJI MakerNote inside Motorola (big-endian) EXIF.
+
+	DJI writes its MakerNote little-endian; a tool that rewrites the EXIF in
+	Motorola byte order copies that opaque blob unchanged (Samples/dji_phantom4_2
+	is such a file). Read in the EXIF's byte order, the entry count came out as
+	garbage and the whole MakerNote, speeds and camera angles, was skipped.
+	"""
+	floats = ((3, 1.5), (4, -2.0), (5, 0.25), (9, -45.0), (10, 90.0), (11, 1.0))
+	note = struct.pack('<H', 1 + len(floats)) + struct.pack('<HHI', 1, FMT_ASCII, 4) + b'DJI\x00'
+	note += b''.join(struct.pack('<HHIf', tag, FMT_FLOAT, 1, value) for tag, value in floats)
+	return exif_payload(ifd_at(len(TIFF_HEADER) + 4, [
+		(0x010f, FMT_ASCII, 4, b'DJI\x00'),
+		(0x927c, FMT_UNDEFINED, len(note), note),
+	]))
+
+
+def dji_speed_partial(reverse=False):
+	"""XMP fills missing MakerNote speeds but preserves its finite SpeedZ (1).
+
+	The MakerNote rejects non-finite X/Y. Its remaining Z must still win over
+	the XMP value (30), in either segment order; hasSpeed() alone cannot tell
+	which individual components are already present.
+	"""
+	payloads = (makernote_float_nonfinite(), xmp(
+		' rdf:about="DJI Meta Data"'
+		' xmlns:drone-dji="http://www.dji.com/drone-dji/1.0/"'
+		' drone-dji:FlightXSpeed="10"'
+		' drone-dji:FlightYSpeed="20"'
+		' drone-dji:FlightZSpeed="30"'))
+	return payloads[::-1] if reverse else payloads
+
+
+def dji_speed_partial_xmp_first():
+	return dji_speed_partial(reverse=True)
+
+
+# JPEG segments and the Multi-Picture Format (MPF, CIPA DC-007) index
+SOI, EOI = b'\xff\xd8', b'\xff\xd9'
+APP1, APP2, COM = 0xe1, 0xe2, 0xfe
+MPF_ID = b'MPF\x00'               # APP2 MPF identifier, followed by a TIFF header
+ICC_ID = b'ICC_PROFILE\x00'       # an APP2 segment that is not MPF
+# MP entry attribute: three flags, the image format (0: JPEG) and the MP type code
+MP_PARENT, MP_CHILD, MP_REPRESENTATIVE = 1 << 31, 1 << 30, 1 << 29
+MP_LARGE_THUMBNAIL, MP_DISPARITY, MP_PRIMARY = 0x010001, 0x020002, 0x030000
+
+
+def segment(marker, payload):
+	"""One JPEG segment: the marker, its length (which counts itself), the payload."""
+	return b'\xff' + bytes([marker]) + struct.pack('>H', len(payload) + 2) + payload
+
+
+def exif_image_size(width, height):
+	"""EXIF payload holding only the image size, in the EXIF IFD."""
+	return exif_with_subifd(EXIF_IFD_POINTER, [
+		(0xa002, FMT_LONG, 1, struct.pack('>I', width)),
+		(0xa003, FMT_LONG, 1, struct.pack('>I', height)),
+	])
+
+
+def mpf(images, order='<', entry_bytes=None):
+	"""APP2 MPF payload: "MPF\\0", a TIFF header and the MP Index IFD.
+
+	`images` are the (attribute, length, start) of each MP entry. MPF is a TIFF
+	structure of its own, with a byte order of its own, and the start of every
+	image but the first (0) is relative to its TIFF header, so MPF_ID is not
+	counted. `entry_bytes` overrides the byte count of the MP Entry tag.
+	"""
+	entries = b''.join(struct.pack(order + 'IIIHH', attribute, length, start, 0, 0)
+		for attribute, length, start in images)
+	header = (b'II*\x00' if order == '<' else b'MM\x00*') + struct.pack(order + 'I', 8)
+	return MPF_ID + header + ifd_at(len(header), [
+		(0xb000, FMT_UNDEFINED, 4, b'0100'),                             # MPFVersion
+		(0xb001, FMT_LONG, 1, struct.pack(order + 'I', len(images))),    # NumberOfImages
+		(0xb002, FMT_UNDEFINED, entry_bytes or len(entries), entries),   # MP Entry
+	], order)
+
+
+def mp_file(segments, first, images, order='<'):
+	"""A multi-picture JPEG: its metadata `segments`, an MPF index and trailing images.
+
+	`segments` are the (marker, payload) pairs that precede the MPF index, `first`
+	is the attribute of the image holding it, and `images` the (attribute, data) of
+	each image appended after its EOI. Their starts depend on the length of the
+	first image, which does not depend on them, so it is built once to measure it,
+	with any length that keeps the starts positive.
+	"""
+	head = SOI + b''.join(segment(marker, payload) for marker, payload in segments)
+	tiff_header = len(head) + 4 + len(MPF_ID)  # past the APP2 marker, length and MPF_ID
+
+	def build(first_length):
+		index, start = [(first, first_length, 0)], first_length
+		for attribute, data in images:
+			index.append((attribute, len(data), start - tiff_header))
+			start += len(data)
+		return head + segment(APP2, mpf(index, order)) + EOI
+
+	return build(len(build(tiff_header))) + b''.join(data for _, data in images)
+
+
+def jpeg_stub(comment):
+	"""The smallest JPEG to stand for an embedded image: SOI, a comment, EOI."""
+	return SOI + segment(COM, comment) + EOI
+
+
+def mpf_preview():
+	"""An MPF index after the EXIF and XMP, listing the image and its preview.
+
+	Laid out like a DJI Osmo 360 panorama: EXIF, XMP, then the index of the
+	primary image and its large thumbnail. The scan used to stop as soon as it had
+	EXIF and XMP, before reaching the index; an ICC profile, which is also stored
+	in APP2, precedes it and must be skipped. The index is little-endian inside
+	big-endian EXIF, as each TIFF structure states its own byte order.
+	"""
+	return mp_file([
+		(APP1, exif_image_size(7776, 3888)),
+		(APP1, xmp(' xmlns:GPano="http://ns.google.com/photos/1.0/panorama/"'
+			' GPano:ProjectionType="equirectangular"')),
+		(APP2, ICC_ID + b'\x01\x01' + bytes(16)),
+	], MP_PARENT | MP_REPRESENTATIVE | MP_PRIMARY, [
+		(MP_CHILD | MP_LARGE_THUMBNAIL, jpeg_stub(b'1440x720 preview')),
+	])
+
+
+def mpf_stereo_big_endian():
+	"""A stereo pair (MPO): two disparity images, indexed in Motorola byte order."""
+	return mp_file([
+		(APP1, exif_image_size(3648, 2736)),
+	], MP_REPRESENTATIVE | MP_DISPARITY, [
+		(MP_DISPARITY, jpeg_stub(b'right view')),
+	], '>')
+
+
+def mpf_entry_oob():
+	"""parseFromMPFSegment(): an MP Entry tag claiming more images than fit the segment.
+
+	4096 entries of 16 bytes would take 64 KiB, more than any JPEG segment holds.
+	The index must be dropped as a whole, without reading past the segment, while
+	the EXIF of the image is still reported.
+	"""
+	index = mpf([(MP_REPRESENTATIVE | MP_PRIMARY, 0, 0)], entry_bytes=4096 * 16)
+	return SOI + segment(APP1, exif_image_size(640, 480)) + segment(APP2, index) + EOI
+
+
+def mpf_offset_wrap():
+	"""parseFromMPFSegment(): an image offset that only fits in 64 bits.
+
+	An image start is relative to the MPF TIFF header, so its offset in the file
+	is the header's offset plus a 32-bit value from the file: 0xffffffff here,
+	which 32-bit arithmetic wraps to just before the header. It must come back as
+	it is, past 4 GiB, so that the caller can tell it lies beyond the file.
+	"""
+	index = mpf([
+		(MP_PARENT | MP_REPRESENTATIVE | MP_PRIMARY, 0xffffffff, 0),
+		(MP_CHILD | MP_LARGE_THUMBNAIL, 0xffffffff, 0xffffffff),
+	])
+	return SOI + segment(APP1, exif_image_size(640, 480)) + segment(APP2, index) + EOI
+
+
+def mpf_entry_partial():
+	"""A 17-byte MP Entry is not one complete 16-byte entry.
+
+	Only 16 bytes are stored. Rounding down the count silently accepts this
+	truncated index instead of checking every byte the tag declares.
+	"""
+	index = mpf([(MP_PRIMARY, 10, 0)], entry_bytes=17)
+	return SOI + segment(APP1, exif_image_size(640, 480)) + segment(APP2, index) + EOI
+
+
 SAMPLES = (
 	('poc-rational-oob.jpg', rational_oob),
 	('poc-makernote-oob.jpg', makernote_oob),
@@ -182,13 +590,37 @@ SAMPLES = (
 	('poc-first-ifd-underflow.jpg', first_ifd_offset_underflow),
 	('poc-subjectarea-alloc-dos.jpg', subjectarea_alloc_dos),
 	('poc-subjectarea-count-wrap.jpg', subjectarea_count_wrap),
+	('poc-exposureindex-overflow.jpg', exposure_index_overflow),
+	('poc-exposureindex-negative.jpg', exposure_index_negative),
+	('poc-apex-overflow.jpg', apex_overflow),
+	('poc-makernote-float-nonfinite.jpg', makernote_float_nonfinite),
+	('poc-xmp-nonfinite.jpg', xmp_nonfinite),
+	('poc-xmp-trailing-text.jpg', xmp_trailing_text),
+	('gps-void.jpg', gps_void),
+	('gps-signed-zero.jpg', gps_signed_zero),
+	('dji-speed-max-aperture.jpg', dji_speed_max_aperture),
+	('dji-makernote-little-endian.jpg', dji_makernote_little_endian),
+	('dji-speed-partial.jpg', dji_speed_partial),
+	('dji-speed-partial-xmp-first.jpg', dji_speed_partial_xmp_first),
+)
+
+# samples that need more than APP1 segments; their builders return the whole file
+FILES = (
+	('mpf-preview.jpg', mpf_preview),
+	('mpf-stereo-big-endian.jpg', mpf_stereo_big_endian),
+	('poc-mpf-entry-oob.jpg', mpf_entry_oob),
+	('poc-mpf-offset-wrap.jpg', mpf_offset_wrap),
+	('poc-mpf-entry-partial.jpg', mpf_entry_partial),
 )
 
 
 def main():
 	outdir = os.path.dirname(os.path.abspath(__file__))
-	for name, build in SAMPLES:
-		data = jpeg(build())
+	for name, build in SAMPLES + FILES:
+		data = build()
+		if (name, build) in SAMPLES:
+			# a builder returns one APP1 payload, or a tuple of them (e.g. EXIF + XMP)
+			data = jpeg(*data) if isinstance(data, tuple) else jpeg(data)
 		path = os.path.join(outdir, name)
 		with open(path, 'wb') as fh:
 			fh.write(data)

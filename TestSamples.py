@@ -30,6 +30,8 @@ BASELINE_EXT = '.expected'
 # (e.g. a future fuzzer find that loops instead of crashing) can stall the whole run.
 DEMO_TIMEOUT_SECONDS = 30
 TIMEOUT_MARKER = 'TIMEOUT'
+# highest POSIX signal number (Linux SIGRTMAX), bounding the 128+signum crash exit codes
+MAX_SIGNAL = 64
 
 
 def find_binary(binary_arg):
@@ -110,9 +112,11 @@ def is_crash_exit(exit_code):
 	"""True if exit_code says the demo died on a signal rather than exiting normally.
 
 	subprocess reports a POSIX signal death as a negative code; shells and CI runners
-	surface the same event as 128+signum, so both forms are treated as a crash.
+	surface the same event as 128+signum, so both forms are treated as a crash. The
+	128+signum form stops at MAX_SIGNAL: above it are ordinary exit codes, such as
+	the 253..255 the demo returns for its own -3..-1 parse errors.
 	"""
-	return isinstance(exit_code, int) and (exit_code < 0 or exit_code >= 128)
+	return isinstance(exit_code, int) and (exit_code < 0 or 128 < exit_code <= 128 + MAX_SIGNAL)
 
 
 def print_exiftool_cross_check(exiftool, sample_path):

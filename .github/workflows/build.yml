@@ -49,6 +49,8 @@ jobs:
       VCPKG_COMMIT: '74e6536215718009aae747d86d84b78376bf9e09'
       # halt_on_error+exitcode=1 is what makes this job able to fail at all: without it,
       # a sanitizer prints its report to stderr and the process still exits 0.
+      # float-cast-overflow is named explicitly because gcc, unlike Clang, leaves it out of
+      # -fsanitize=undefined, and it is what Samples/fuzz/poc-exposureindex-* exist to trip.
       ASAN_OPTIONS: 'halt_on_error=1:exitcode=1'
       UBSAN_OPTIONS: 'halt_on_error=1:exitcode=1:print_stacktrace=1'
     steps:
@@ -64,8 +66,8 @@ jobs:
             -DCMAKE_BUILD_TYPE=Debug \
             -DBUILD_SHARED_LIBS=OFF \
             -DBUILD_DEMO=ON \
-            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer -g -O1" \
-            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+            -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined,float-cast-overflow -fno-omit-frame-pointer -g -O1" \
+            -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined,float-cast-overflow"
       - name: Build
         run: cmake --build build-sanitize -j2
       - name: Run the corpus regression runner under ASan+UBSan
@@ -75,3 +77,49 @@ jobs:
         # that trips ASan/UBSan gets killed with exit 1 before printing its normal output,
         # which is itself a baseline mismatch.
         run: python3 TestSamples.py --binary build-sanitize/TinyEXIFdemo
+
+  big-endian:
+    # parse16()/parse32() decode by the byte order the TIFF header declares, so the
+    # result must not depend on the host's; every other job runs on a little-endian
+    # CPU, where coupling the two goes unnoticed (#29). s390x under QEMU is the
+    # big-endian host GitHub can run. It builds with the distro's compiler and
+    # tinyxml2 rather than vcpkg, which would only be slow under emulation: the code
+    # under test is the parser, not the build system.
+    name: "Big-endian (s390x via QEMU)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+        with:
+          platforms: s390x
+      - name: Run the corpus regression runner on s390x
+        run: |
+          docker run --rm --platform linux/s390x -v "$PWD":/src -w /src alpine:3.20 sh -euc '
+            apk add --no-cache g++ tinyxml2-dev python3
+            test "$(python3 -c "import sys; print(sys.byteorder)")" = big
+            g++ -std=c++11 -O2 main.cpp TinyEXIF.cpp -ltinyxml2 -o /tmp/TinyEXIFdemo
+            python3 TestSamples.py --binary /tmp/TinyEXIFdemo'
+
+  warnings:
+    # gcc's -Wmaybe-uninitialized analysis changes between releases and only runs
+    # when optimizing, so the warnings vendored copies hit with gcc 16 (#30) were
+    # invisible to the other jobs' older compilers and default flags. The version is
+    # pinned rather than gcc:latest so that a new gcc release can not turn CI red on
+    # its own; bump it deliberately.
+    name: "Warnings (gcc 16, -Werror)"
+    runs-on: ubuntu-latest
+    container: gcc:16
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install tinyxml2
+        run: apt-get update && apt-get install -y --no-install-recommends libtinyxml2-dev
+      - name: Compile with and without XMP at every optimization level
+        run: |
+          for xmp in "" -DTINYEXIF_NO_XMP_SUPPORT; do
+            for opt in -O0 -O1 -O2 -O3 -Os; do
+              echo "g++ $opt $xmp"
+              for src in TinyEXIF.cpp main.cpp; do
+                g++ -std=c++11 $opt -Wall -Wextra -Werror $xmp -c $src -o /dev/null
+              done
+            done
+          done

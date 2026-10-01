@@ -15,7 +15,7 @@
 #include <vector>
 
 #define TINYEXIF_MAJOR_VERSION 1
-#define TINYEXIF_MINOR_VERSION 1
+#define TINYEXIF_MINOR_VERSION 2
 #define TINYEXIF_PATCH_VERSION 0
 
 // TINYEXIF_VERSION_STRING and TINYEXIF_VERSION are derived from the three
@@ -77,6 +77,8 @@ enum FieldCode {
 // XMP equivalents write the same member, and either source setting it counts
 // as present. Note that FieldCode above (FIELD_EXIF/FIELD_XMP) is a different
 // thing: it says which segment was found, not which tags were parsed.
+// A floating point field only ever holds a finite value: a tag whose value is
+// NaN or infinite, or converts to one, is treated as malformed and left absent.
 // New enumerators are appended before FIELD_ID_COUNT, so the numeric value of
 // an existing one never changes.
 enum FieldID {
@@ -177,6 +179,9 @@ enum FieldID {
 	FIELD_ID_MicroVideo_HasMotionPhoto,
 	FIELD_ID_MicroVideo_MotionPhotoLength,
 	FIELD_ID_MicroVideo_MotionPhotoMime,
+	// added in 1.2.0
+	FIELD_ID_MaxApertureValue,
+	FIELD_ID_MPImages,                  // set if the MPF index listed at least one image
 	FIELD_ID_COUNT                      // number of known fields; not a field itself
 };
 
@@ -261,6 +266,8 @@ private:
 	void parseIFDGPS(EntryParser&);
 	// Parse tag as MakerNote IFD.
 	void parseIFDMakerNote(EntryParser&);
+	// Parse the MPF index, given the stream offset of its TIFF header.
+	int parseFromMPFSegment(const uint8_t* buf, unsigned len, uint64_t offset);
 
 	// Mark the given field as present.
 	void SetField(FieldID id);
@@ -317,8 +324,9 @@ public:
 	                                    // 7: portrait mode
 	                                    // 8: landscape mode
 	uint16_t ISOSpeedRatings;           // ISO speed
-	double ShutterSpeedValue;           // Shutter speed (reciprocal of exposure time)
-	double ApertureValue;               // The lens aperture
+	double ShutterSpeedValue;           // Shutter speed, converted from APEX to an exposure time in seconds
+	double ApertureValue;               // The lens aperture, converted from APEX to an f-number
+	double MaxApertureValue;            // The widest aperture of the lens, as an f-number
 	double BrightnessValue;             // The value of brightness
 	double ExposureBiasValue;           // Exposure bias value in EV
 	double SubjectDistance;             // Distance to focus point in meters
@@ -398,8 +406,8 @@ public:
 		bool hasDistortion() const; // Return true if any of K1, K2, P1, P2, K3 are available
 	} Distortion;
 	struct TINYEXIF_LIB LensInfo_t {    // Lens information
-		double FStopMin;                // Min aperture (f-stop)
-		double FStopMax;                // Max aperture (f-stop)
+		double FStopMin;                // Widest aperture (f-number) at FocalLengthMin
+		double FStopMax;                // Widest aperture (f-number) at FocalLengthMax
 		double FocalLengthMin;          // Min focal length (mm)
 		double FocalLengthMax;          // Max focal length (mm)
 		double DigitalZoomRatio;        // Digital zoom ratio when the image was shot
@@ -445,7 +453,7 @@ public:
 			uint8_t direction;
 		} LatComponents, LonComponents; // Latitude/Longitude expressed in deg/min/sec
 		void parseCoords();             // Convert Latitude/Longitude from deg/min/sec to decimal
-		bool hasLatLon() const;         // Return true if (lat,lon) is available
+		bool hasLatLon() const;         // Return true if (lat,lon) is available; not when the GPS had no fix (GPSStatus 'V')
 		bool hasAltitude() const;       // Return true if (alt) is available
 		bool hasRelativeAltitude()const;// Return true if (rel_alt) is available
 		bool hasOrientation() const;    // Return true if (roll,yaw,pitch) is available
@@ -482,6 +490,27 @@ public:
 		uint32_t MotionPhotoLength;     // GCamera:MotionPhoto - length in bytes of the trailing video item, saturated at UINT32_MAX; a length, not an offset: it differs from MicroVideoOffset as soon as the container holds items after the video
 		std::string MotionPhotoMime;    // GCamera:MotionPhoto - mime type of the trailing video item, e.g. "video/mp4" (empty if the container declared none)
 	} MicroVideo;
+	struct TINYEXIF_LIB MPImage_t {     // An image stored in the file, as listed by its Multi-Picture Format index (MPF, CIPA DC-007)
+		uint32_t Type;                  // MP type code
+		                                // 0x000000: undefined
+		                                // 0x010001..0x010005: large thumbnail, a preview of the primary image (VGA, full HD, 4K, 8K, 16K equivalent)
+		                                // 0x020001: multi-frame panorama
+		                                // 0x020002: multi-frame disparity, one view of a stereo image
+		                                // 0x020003: multi-frame multi-angle
+		                                // 0x030000: baseline MP primary image
+		                                // 0x040000: original preservation image
+		                                // 0x050000: gain map image
+		uint8_t Format;                 // Image data format; 0: JPEG, the only one defined
+		uint8_t Flags;                  // Bit mask of
+		                                // 4: representative image
+		                                // 8: dependent child image
+		                                // 16: dependent parent image
+		uint32_t Length;                // Size of the image in bytes
+		uint64_t Offset;                // Start of the image in bytes, from the start of the JPEG stream; 0 for the first image, normally the one this metadata belongs to
+		bool isLargeThumbnail() const;  // Return true if this is a preview of the primary image (Type 0x01xxxx)
+	};
+	std::vector<MPImage_t> MPImages;    // Images listed by the MPF index, in its order (empty if there is none); they are only located, never read:
+	                                    // Offset and Length come from the file, so check them against its size before reading the image
 };
 
 } // namespace TinyEXIF

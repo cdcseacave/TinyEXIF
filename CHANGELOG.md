@@ -11,6 +11,113 @@ this project uses [Semantic Versioning](https://semver.org/).
      <version>" form as a transitional fallback, so a tag pushed before the
      rename still works -- but renaming first keeps this file accurate.) -->
 
+## [1.2.0] - 2026-10-01
+
+### Added
+- `MaxApertureValue` (EXIF 0x9205), the widest aperture of the lens, as an
+  f-number like `ApertureValue`, with `FIELD_ID_MaxApertureValue`.
+- DJI XMP flight speed (`drone-dji:FlightXSpeed`/`YSpeed`/`ZSpeed`) now fills
+  `GeoLocation.SpeedX/Y/Z` when the DJI MakerNote has not, as on cameras that
+  write no MakerNote speed (e.g. the Osmo 360). The MakerNote, being binary,
+  still takes precedence.
+- Multi-Picture Format (MPF, CIPA DC-007) index: `MPImages` lists the images a
+  JPEG stores after its own, such as the preview of a panorama, the second view
+  of a stereo (`.MPO`) image or an HDR gain map, with the type, flags, offset
+  and length of each (`FIELD_ID_MPImages`). They are only located, never read;
+  the README shows how to read one safely and parse it in turn. To reach the
+  index, the scan no longer stops as soon as it has EXIF and XMP: it goes on to
+  the image data, skipping any further EXIF or XMP segment as before.
+- The README now documents every feature. That covers the input sources and
+  return codes, and a reference of every field with the EXIF tag or XMP
+  property it comes from. It also covers the presence API, MPF, the guarantees
+  for untrusted files, building with CMake or vcpkg, and testing. The header
+  comments of `ShutterSpeedValue`, an exposure time in seconds, and of
+  `LensInfo.FStopMin`/`FStopMax`, the widest aperture at each end of the zoom
+  range, described other values.
+
+### Fixed
+- Shared-library ABI identity now changes with the new `EXIFInfo` layout: ABI
+  version 2 on Linux/macOS, and `TinyEXIF-2.dll` on Windows. Consumers must
+  rebuild with the 1.2.0 header; old binaries must not load the new library.
+- XMP flight speed fills each missing component individually, preserving a
+  finite DJI MakerNote speed even when another component is absent or invalid.
+- MPF entry byte counts must describe complete 16-byte entries; a truncated
+  count is rejected rather than rounded down to an apparently valid index.
+- The release workflow now runs the sample corpus for the tagged build before
+  publishing the release.
+- `BUILD_FUZZER=ON` now links the coverage runtime for the demo and shared
+  library too, so the documented build works with the demo enabled.
+- **A GPS receiver without a fix no longer yields a position.** Cameras write
+  the position tags even then, usually all zeros, which placed the image at
+  0°N 0°E. With `GPSStatus` `V` (measurement void) latitude, longitude and
+  altitude are now left absent, as is the DJI XMP `AbsoluteAltitude` when
+  `drone-dji:GpsStatus` is `Invalid`.
+- A latitude, longitude or altitude of 0 with a south, west or below-sea-level
+  reference read back as IEEE 754 `-0`, which prints as "-0".
+- A DJI MakerNote was skipped entirely, speeds and camera angles included, in
+  files whose EXIF was rewritten in Motorola byte order: DJI writes the
+  MakerNote little-endian and editors copy it unchanged, so its byte order is
+  now detected rather than taken from the TIFF header.
+- **Big-endian CPUs could not parse EXIF at all.** The "Big-endian CPU
+  support" of 1.0.3 (#14) combined the TIFF byte-order marker with the host's
+  byte order, but `parse16()`/`parse32()` assemble values byte by byte and were
+  already host-independent, so on a big-endian host both `II` and `MM` were
+  inverted: `II` files failed with `PARSE_CORRUPT_DATA` and `MM` files decoded
+  corrupted values. The marker now selects the file's byte order alone.
+  Little-endian hosts are unaffected. A new CI job runs the full corpus on
+  s390x under QEMU. Reported by @cinema-ONE. (#29)
+- gcc 16 `-Wmaybe-uninitialized` warnings on the six fetch-into-temporary
+  sites. Rather than initializing each temporary, they are gone: the new
+  `EntryParser::FetchAs<T>()` fetches a value stored as one type into a member
+  of another, and also replaces `FetchFloat()`. Builds with
+  `TINYEXIF_NO_XMP_SUPPORT` no longer warn about the XMP-only string helpers.
+  A new CI job compiles with gcc 16 `-Wall -Wextra -Werror` at every
+  optimization level, with and without XMP. Reported by @heitbaum. (#30)
+- XMP `tiff:XResolution` / `tiff:YResolution` are rationals (`"300/1"`), but
+  were read with a parser that stopped at the slash, so `"144/2"` came back as
+  144 instead of 72. They now go through the same rational parser as the other
+  XMP numbers.
+- XMP numbers followed by other text were read as the number they start with:
+  `"12junk"` as 12 and the rational `"1e/2"` as 1/2. The `tiff:` integers, read
+  by tinyxml2, also turned `"-1"` into 4294967295 and truncated an orientation
+  beyond 16 bits. Every XMP number, the `tiff:` ones included, must now be the
+  whole text, surrounding whitespace aside, or it is left absent.
+- Parsing from memory, `parseFrom(data, length)`, refused a read ending exactly
+  at the end of the buffer, so a file whose last segment runs to its end parsed
+  differently than from a stream. The check also formed a pointer past the end
+  of the buffer before comparing it, which is undefined behavior. Found by
+  fuzzing the new MPF parser.
+- `TestSamples.py --update` aborted on the corpus's own error samples, mistaking
+  the demo's 253..255 exit codes for signal deaths.
+
+### Security
+
+Three privately reported advisories, all low severity: none is a memory-safety
+issue, but each lets a crafted file put an invalid value into a parsed field.
+Every floating point field is now guaranteed to be finite: a value that is not
+leaves the field absent, so `HasField()` and the `hasXxx()` accessors report it
+as such.
+
+- Undefined behavior converting an out-of-range `ExposureIndex` to
+  `ISOSpeedRatings`: a negative index now leaves `ISOSpeedRatings` absent and
+  one above 65535 is clamped to 65535, as EXIF records ISO. The sanitizer job
+  now enables `float-cast-overflow`, which gcc leaves out of
+  `-fsanitize=undefined`. Reported by @ruben0315R, crediting @Magashwarahan
+  for the variant discovery. (GHSA-jqfq-fwfw-xc8x)
+- XMP rationals with a zero denominator (`"1/0"`, `"0/0"`) divided to inf or
+  NaN, which read back as present through the `DBL_MAX` sentinels and pass any
+  range check, as every comparison with NaN is false. The same values also
+  came from the `"nan"`, `"inf"` and out-of-range literals that `strtod` and
+  tinyxml2 accept, including in `DewarpData` and `tiff:X/YResolution`; every
+  XMP number now goes through one parser that rejects all of them. Reported by
+  Ruben Arumugam Gunavathy (@ruben0315R). (GHSA-rvfv-gvcj-m5f5)
+- The APEX conversions of `ShutterSpeedValue` and `ApertureValue` overflowed to
+  +inf for values far outside any camera's range, e.g. a shutter speed of
+  `INT32_MIN`. Found in the same audit: a DJI MakerNote `FLOAT` is raw IEEE 754
+  bits and could carry NaN or inf straight into the GeoLocation speed and
+  orientation fields. Reported by Ruben Arumugam Gunavathy (@ruben0315R).
+  (GHSA-pgrm-rwjh-553p)
+
 ## [1.1.0] - 2026-08-23
 
 ### Added
@@ -58,13 +165,16 @@ this project uses [Semantic Versioning](https://semver.org/).
 
 Published as security advisory
 [GHSA-jqj2-8c2j-gx82](https://github.com/cdcseacave/TinyEXIF/security/advisories/GHSA-jqj2-8c2j-gx82)
-(High). Every issue below is reachable by handing the library a crafted JPEG,
-and there is no workaround other than upgrading.
+(High), [CVE-2026-38332](https://nvd.nist.gov/vuln/detail/CVE-2026-38332).
+Every issue below is reachable by handing the library a crafted JPEG, and
+there is no workaround other than upgrading.
 
 - Bounds-checked every attacker-controlled buffer read reachable through
   `EntryParser::Fetch`, `ParseTag()`, MakerNote parsing, and the EXIF
   segment offset walk, closing a reported crash in `Fetch(double&)`, which
-  previously had no bounds check at all. Reported by **doopal**.
+  previously had no bounds check at all. Reported by
+  [y1bit](https://github.com/y1bit), whose original input is now in the
+  regression corpus as `Samples/fuzz/poc-y1bit-rational-oob.jpg`.
 - Fixed an unbounded allocation from an attacker-controlled `SubjectArea`
   component count: a single crafted 12-byte IFD entry could drive a
   multi-gigabyte `std::vector::resize()` from a file a few dozen bytes
@@ -95,7 +205,7 @@ and there is no workaround other than upgrading.
 - `std::istream`-based constructor. (#11)
 - Google Camera motion-photo metadata support. (#12)
 - `GPano:PosePitchDegrees` / `GPano:PoseRollDegrees` parsing. (#8)
-- Big-endian CPU support. (#14)
+- Big-endian CPU support. (#14; did not work, fixed in 1.2.0 by #29)
 
 ### Fixed
 - MSVC++ UNICODE builds. (#9)

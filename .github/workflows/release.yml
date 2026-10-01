@@ -75,6 +75,9 @@ jobs:
           buildPreset: "vcpkg"
           buildPresetAdditionalArgs: "[ '--config Release' ]"
 
+      - name: Run the corpus regression runner for this tag
+        run: python3 TestSamples.py --binary builds/vcpkg/Release/TinyEXIFdemo
+
   release:
     name: "Create GitHub Release"
     needs: build
