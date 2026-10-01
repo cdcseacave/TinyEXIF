@@ -324,8 +324,8 @@ public:
 	                                    // 7: portrait mode
 	                                    // 8: landscape mode
 	uint16_t ISOSpeedRatings;           // ISO speed
-	double ShutterSpeedValue;           // Shutter speed (reciprocal of exposure time)
-	double ApertureValue;               // The lens aperture
+	double ShutterSpeedValue;           // Shutter speed, converted from APEX to an exposure time in seconds
+	double ApertureValue;               // The lens aperture, converted from APEX to an f-number
 	double MaxApertureValue;            // The widest aperture of the lens, as an f-number
 	double BrightnessValue;             // The value of brightness
 	double ExposureBiasValue;           // Exposure bias value in EV
@@ -406,8 +406,8 @@ public:
 		bool hasDistortion() const; // Return true if any of K1, K2, P1, P2, K3 are available
 	} Distortion;
 	struct TINYEXIF_LIB LensInfo_t {    // Lens information
-		double FStopMin;                // Min aperture (f-stop)
-		double FStopMax;                // Max aperture (f-stop)
+		double FStopMin;                // Widest aperture (f-number) at FocalLengthMin
+		double FStopMax;                // Widest aperture (f-number) at FocalLengthMax
 		double FocalLengthMin;          // Min focal length (mm)
 		double FocalLengthMax;          // Max focal length (mm)
 		double DigitalZoomRatio;        // Digital zoom ratio when the image was shot

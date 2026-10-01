@@ -27,6 +27,13 @@ this project uses [Semantic Versioning](https://semver.org/).
   the README shows how to read one safely and parse it in turn. To reach the
   index, the scan no longer stops as soon as it has EXIF and XMP: it goes on to
   the image data, skipping any further EXIF or XMP segment as before.
+- The README now documents every feature. That covers the input sources and
+  return codes, and a reference of every field with the EXIF tag or XMP
+  property it comes from. It also covers the presence API, MPF, the guarantees
+  for untrusted files, building with CMake or vcpkg, and testing. The header
+  comments of `ShutterSpeedValue`, an exposure time in seconds, and of
+  `LensInfo.FStopMin`/`FStopMax`, the widest aperture at each end of the zoom
+  range, described other values.
 
 ### Fixed
 - **A GPS receiver without a fix no longer yields a position.** Cameras write
