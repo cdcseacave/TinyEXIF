@@ -11,7 +11,7 @@ this project uses [Semantic Versioning](https://semver.org/).
      <version>" form as a transitional fallback, so a tag pushed before the
      rename still works -- but renaming first keeps this file accurate.) -->
 
-## [Unreleased] - 1.1.1
+## [Unreleased] - 1.2.0
 
 ### Fixed
 - **Big-endian CPUs could not parse EXIF at all.** The "Big-endian CPU
@@ -121,7 +121,7 @@ and there is no workaround other than upgrading.
 - `std::istream`-based constructor. (#11)
 - Google Camera motion-photo metadata support. (#12)
 - `GPano:PosePitchDegrees` / `GPano:PoseRollDegrees` parsing. (#8)
-- Big-endian CPU support. (#14; did not work, fixed in 1.1.1 by #29)
+- Big-endian CPU support. (#14; did not work, fixed in 1.2.0 by #29)
 
 ### Fixed
 - MSVC++ UNICODE builds. (#9)

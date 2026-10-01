@@ -15,7 +15,7 @@
 #include <vector>
 
 #define TINYEXIF_MAJOR_VERSION 1
-#define TINYEXIF_MINOR_VERSION 1
+#define TINYEXIF_MINOR_VERSION 2
 #define TINYEXIF_PATCH_VERSION 0
 
 // TINYEXIF_VERSION_STRING and TINYEXIF_VERSION are derived from the three

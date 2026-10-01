@@ -1,6 +1,6 @@
 {
   "name": "tinyexif",
-  "version-string": "1.1.0",
+  "version-string": "1.2.0",
   "dependencies": [
     "tinyxml2"
   ]
