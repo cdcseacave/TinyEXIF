@@ -177,6 +177,14 @@ int main(int argc, const char** argv)
 		if (!imageEXIF.MicroVideo.MotionPhotoMime.empty())
 			std::cout << "MicroVideo.MotionPhotoMime " << imageEXIF.MicroVideo.MotionPhotoMime << "\n";
 	}
+	// numbered from 1 like exiftool does; the first image is normally this one
+	for (size_t i=0; i<imageEXIF.MPImages.size(); ++i) {
+		const TinyEXIF::EXIFInfo::MPImage_t& image(imageEXIF.MPImages[i]);
+		std::cout << "MPImage" << i+1
+			<< " Type 0x" << std::hex << std::setfill('0') << std::setw(6) << image.Type << std::dec << std::setfill(' ')
+			<< " Flags " << (unsigned)image.Flags << " Offset " << image.Offset << " Length " << image.Length
+			<< (image.isLargeThumbnail() ? " (large thumbnail)" : "") << "\n";
+	}
 
 	// list which fields were actually present: the values printed above can not
 	// tell a tag that was absent from a tag that was there and legitimately zero,

@@ -2,10 +2,12 @@
 """Generator for the crafted regression samples in Samples/fuzz/.
 
 These are not real photos: each one is a minimal JPEG whose APP1 EXIF and/or
-XMP segments are built to pin one specific parser behavior. The poc-* samples
-hit an out-of-bounds read, undefined-behavior conversion or non-finite value
-that the parser used to perform or store; the others cover corners of the
-format that real files reach (a GPS without a fix, mixed byte orders).
+XMP segments, and APP2 MPF index, are built to pin one specific parser
+behavior. The poc-* samples hit an out-of-bounds read, undefined-behavior
+conversion, non-finite value or offset overflow that the parser used to
+perform or store, or that a new parser must not; the others cover corners of
+the format that real files reach (a GPS without a fix, mixed byte orders,
+images stored after the first one).
 They are checked in together with this generator so that the bytes stay
 reviewable instead of being an opaque blob; re-run it to regenerate them:
 
@@ -18,8 +20,9 @@ One sample is not generated here: poc-y1bit-rational-oob.jpg is the original
 190-byte input from y1bit's report of the EntryParser::Fetch(double&)
 out-of-bounds read fixed in 1.1.0, checked in byte for byte as received.
 
-All samples use Motorola ("MM", big-endian) byte order so the crafted values
-below read the same way they are written.
+All EXIF uses Motorola ("MM", big-endian) byte order so the crafted values
+below read the same way they are written. The MPF index states a byte order
+of its own, Intel ("II") unless a sample says otherwise, as cameras write it.
 """
 import os
 import struct
@@ -42,15 +45,15 @@ FMT_FLOAT = 11
 XMP_ID = b'http://ns.adobe.com/xap/1.0/\x00'  # APP1 XMP identifier
 
 
-def entry(tag, fmt, count, value):
+def entry(tag, fmt, count, value, order='>'):
 	"""One 12-byte IFD entry; `value` is the raw 4-byte value/offset field."""
 	assert len(value) == 4
-	return struct.pack('>HHI', tag, fmt, count) + value
+	return struct.pack(order + 'HHI', tag, fmt, count) + value
 
 
-def ifd(entries):
+def ifd(entries, order='>'):
 	"""An IFD: entry count followed by the entries (no next-IFD offset)."""
-	return struct.pack('>H', len(entries)) + b''.join(entries)
+	return struct.pack(order + 'H', len(entries)) + b''.join(entries)
 
 
 def exif_payload(body, first_ifd_offset=len(TIFF_HEADER) + 4):
@@ -74,7 +77,7 @@ def rational(numerator, denominator=1):
 	return struct.pack('>II', numerator, denominator)
 
 
-def ifd_at(offset, fields):
+def ifd_at(offset, fields, order='>'):
 	"""An IFD placed at TIFF `offset`, followed by the values too large for an entry.
 
 	`fields` are (tag, format, count, raw value bytes); a value of up to 4 bytes is
@@ -85,11 +88,11 @@ def ifd_at(offset, fields):
 	entries, data = [], b''
 	for tag, fmt, count, value in fields:
 		if len(value) <= 4:
-			entries.append(entry(tag, fmt, count, value.ljust(4, b'\x00')))
+			entries.append(entry(tag, fmt, count, value.ljust(4, b'\x00'), order))
 		else:
-			entries.append(entry(tag, fmt, count, struct.pack('>I', data_offset + len(data))))
+			entries.append(entry(tag, fmt, count, struct.pack(order + 'I', data_offset + len(data)), order))
 			data += value
-	return ifd(entries) + struct.pack('>I', 0) + data
+	return ifd(entries, order) + struct.pack(order + 'I', 0) + data
 
 
 def exif_with_subifd(pointer_tag, fields):
@@ -404,6 +407,128 @@ def dji_makernote_little_endian():
 	]))
 
 
+# JPEG segments and the Multi-Picture Format (MPF, CIPA DC-007) index
+SOI, EOI = b'\xff\xd8', b'\xff\xd9'
+APP1, APP2, COM = 0xe1, 0xe2, 0xfe
+MPF_ID = b'MPF\x00'               # APP2 MPF identifier, followed by a TIFF header
+ICC_ID = b'ICC_PROFILE\x00'       # an APP2 segment that is not MPF
+# MP entry attribute: three flags, the image format (0: JPEG) and the MP type code
+MP_PARENT, MP_CHILD, MP_REPRESENTATIVE = 1 << 31, 1 << 30, 1 << 29
+MP_LARGE_THUMBNAIL, MP_DISPARITY, MP_PRIMARY = 0x010001, 0x020002, 0x030000
+
+
+def segment(marker, payload):
+	"""One JPEG segment: the marker, its length (which counts itself), the payload."""
+	return b'\xff' + bytes([marker]) + struct.pack('>H', len(payload) + 2) + payload
+
+
+def exif_image_size(width, height):
+	"""EXIF payload holding only the image size, in the EXIF IFD."""
+	return exif_with_subifd(EXIF_IFD_POINTER, [
+		(0xa002, FMT_LONG, 1, struct.pack('>I', width)),
+		(0xa003, FMT_LONG, 1, struct.pack('>I', height)),
+	])
+
+
+def mpf(images, order='<', entry_bytes=None):
+	"""APP2 MPF payload: "MPF\\0", a TIFF header and the MP Index IFD.
+
+	`images` are the (attribute, length, start) of each MP entry. MPF is a TIFF
+	structure of its own, with a byte order of its own, and the start of every
+	image but the first (0) is relative to its TIFF header, so MPF_ID is not
+	counted. `entry_bytes` overrides the byte count of the MP Entry tag.
+	"""
+	entries = b''.join(struct.pack(order + 'IIIHH', attribute, length, start, 0, 0)
+		for attribute, length, start in images)
+	header = (b'II*\x00' if order == '<' else b'MM\x00*') + struct.pack(order + 'I', 8)
+	return MPF_ID + header + ifd_at(len(header), [
+		(0xb000, FMT_UNDEFINED, 4, b'0100'),                             # MPFVersion
+		(0xb001, FMT_LONG, 1, struct.pack(order + 'I', len(images))),    # NumberOfImages
+		(0xb002, FMT_UNDEFINED, entry_bytes or len(entries), entries),   # MP Entry
+	], order)
+
+
+def mp_file(segments, first, images, order='<'):
+	"""A multi-picture JPEG: its metadata `segments`, an MPF index and trailing images.
+
+	`segments` are the (marker, payload) pairs that precede the MPF index, `first`
+	is the attribute of the image holding it, and `images` the (attribute, data) of
+	each image appended after its EOI. Their starts depend on the length of the
+	first image, which does not depend on them, so it is built once to measure it,
+	with any length that keeps the starts positive.
+	"""
+	head = SOI + b''.join(segment(marker, payload) for marker, payload in segments)
+	tiff_header = len(head) + 4 + len(MPF_ID)  # past the APP2 marker, length and MPF_ID
+
+	def build(first_length):
+		index, start = [(first, first_length, 0)], first_length
+		for attribute, data in images:
+			index.append((attribute, len(data), start - tiff_header))
+			start += len(data)
+		return head + segment(APP2, mpf(index, order)) + EOI
+
+	return build(len(build(tiff_header))) + b''.join(data for _, data in images)
+
+
+def jpeg_stub(comment):
+	"""The smallest JPEG to stand for an embedded image: SOI, a comment, EOI."""
+	return SOI + segment(COM, comment) + EOI
+
+
+def mpf_preview():
+	"""An MPF index after the EXIF and XMP, listing the image and its preview.
+
+	Laid out like a DJI Osmo 360 panorama: EXIF, XMP, then the index of the
+	primary image and its large thumbnail. The scan used to stop as soon as it had
+	EXIF and XMP, before reaching the index; an ICC profile, which is also stored
+	in APP2, precedes it and must be skipped. The index is little-endian inside
+	big-endian EXIF, as each TIFF structure states its own byte order.
+	"""
+	return mp_file([
+		(APP1, exif_image_size(7776, 3888)),
+		(APP1, xmp(' xmlns:GPano="http://ns.google.com/photos/1.0/panorama/"'
+			' GPano:ProjectionType="equirectangular"')),
+		(APP2, ICC_ID + b'\x01\x01' + bytes(16)),
+	], MP_PARENT | MP_REPRESENTATIVE | MP_PRIMARY, [
+		(MP_CHILD | MP_LARGE_THUMBNAIL, jpeg_stub(b'1440x720 preview')),
+	])
+
+
+def mpf_stereo_big_endian():
+	"""A stereo pair (MPO): two disparity images, indexed in Motorola byte order."""
+	return mp_file([
+		(APP1, exif_image_size(3648, 2736)),
+	], MP_REPRESENTATIVE | MP_DISPARITY, [
+		(MP_DISPARITY, jpeg_stub(b'right view')),
+	], '>')
+
+
+def mpf_entry_oob():
+	"""parseFromMPFSegment(): an MP Entry tag claiming more images than fit the segment.
+
+	4096 entries of 16 bytes would take 64 KiB, more than any JPEG segment holds.
+	The index must be dropped as a whole, without reading past the segment, while
+	the EXIF of the image is still reported.
+	"""
+	index = mpf([(MP_REPRESENTATIVE | MP_PRIMARY, 0, 0)], entry_bytes=4096 * 16)
+	return SOI + segment(APP1, exif_image_size(640, 480)) + segment(APP2, index) + EOI
+
+
+def mpf_offset_wrap():
+	"""parseFromMPFSegment(): an image offset that only fits in 64 bits.
+
+	An image start is relative to the MPF TIFF header, so its offset in the file
+	is the header's offset plus a 32-bit value from the file: 0xffffffff here,
+	which 32-bit arithmetic wraps to just before the header. It must come back as
+	it is, past 4 GiB, so that the caller can tell it lies beyond the file.
+	"""
+	index = mpf([
+		(MP_PARENT | MP_REPRESENTATIVE | MP_PRIMARY, 0xffffffff, 0),
+		(MP_CHILD | MP_LARGE_THUMBNAIL, 0xffffffff, 0xffffffff),
+	])
+	return SOI + segment(APP1, exif_image_size(640, 480)) + segment(APP2, index) + EOI
+
+
 SAMPLES = (
 	('poc-rational-oob.jpg', rational_oob),
 	('poc-makernote-oob.jpg', makernote_oob),
@@ -423,13 +548,22 @@ SAMPLES = (
 	('dji-makernote-little-endian.jpg', dji_makernote_little_endian),
 )
 
+# samples that need more than APP1 segments; their builders return the whole file
+FILES = (
+	('mpf-preview.jpg', mpf_preview),
+	('mpf-stereo-big-endian.jpg', mpf_stereo_big_endian),
+	('poc-mpf-entry-oob.jpg', mpf_entry_oob),
+	('poc-mpf-offset-wrap.jpg', mpf_offset_wrap),
+)
+
 
 def main():
 	outdir = os.path.dirname(os.path.abspath(__file__))
-	for name, build in SAMPLES:
-		# a builder returns one APP1 payload, or a tuple of them (e.g. EXIF + XMP)
-		payloads = build()
-		data = jpeg(*payloads) if isinstance(payloads, tuple) else jpeg(payloads)
+	for name, build in SAMPLES + FILES:
+		data = build()
+		if (name, build) in SAMPLES:
+			# a builder returns one APP1 payload, or a tuple of them (e.g. EXIF + XMP)
+			data = jpeg(*data) if isinstance(data, tuple) else jpeg(data)
 		path = os.path.join(outdir, name)
 		with open(path, 'wb') as fh:
 			fh.write(data)

@@ -493,6 +493,7 @@ static const char* const g_FieldNames[] = {
 	"MicroVideo.MotionPhotoLength",
 	"MicroVideo.MotionPhotoMime",
 	"MaxApertureValue",
+	"MPImages",
 };
 static_assert(sizeof(g_FieldNames)/sizeof(g_FieldNames[0]) == (size_t)FIELD_ID_COUNT,
 	"g_FieldNames must have exactly one entry per FieldID");
@@ -995,13 +996,43 @@ void EXIFInfo::parseIFDGPS(EntryParser& parser) {
 
 
 //
-// Locates the JM_APP1 segment and parses it using
-// parseFromEXIFSegment() or parseFromXMPSegment()
+// Scans the segments up to the image data for the metadata ones: the JM_APP1 EXIF and
+// XMP segments, parsed by parseFromEXIFSegment() and parseFromXMPSegment(), and the
+// JM_APP2 MPF index, parsed by parseFromMPFSegment()
 //
-int EXIFInfo::parseFrom(EXIFStream& stream) {
+int EXIFInfo::parseFrom(EXIFStream& input) {
 	clear();
-	if (!stream.IsValid())
+	if (!input.IsValid())
 		return PARSE_INVALID_JPEG;
+
+	// Counts the bytes consumed, which gives the offset of every segment in the stream:
+	// the MPF index locates each image relative to its own segment
+	class EXIFStreamCounter : public EXIFStream {
+	public:
+		explicit EXIFStreamCounter(EXIFStream& stream)
+			: stream(stream), position(0) {}
+		bool IsValid() const override {
+			return stream.IsValid();
+		}
+		const uint8_t* GetBuffer(unsigned desiredLength) override {
+			const uint8_t* const buf(stream.GetBuffer(desiredLength));
+			if (buf != NULL)
+				position += desiredLength;
+			return buf;
+		}
+		bool SkipBuffer(unsigned desiredLength) override {
+			if (!stream.SkipBuffer(desiredLength))
+				return false;
+			position += desiredLength;
+			return true;
+		}
+		uint64_t GetPosition() const {
+			return position;
+		}
+	private:
+		EXIFStream& stream;
+		uint64_t position;
+	} stream(input);
 
 	// Sanity check: all JPEG files start with 0xFFD8 and end with 0xFFD9
 	// This check also ensures that the user has supplied a correct value for len.
@@ -1009,8 +1040,8 @@ int EXIFInfo::parseFrom(EXIFStream& stream) {
 	if (buf == NULL || buf[0] != JM_START || buf[1] != JM_SOI)
 		return PARSE_INVALID_JPEG;
 
-	// Scan for JM_APP1 header (bytes 0xFF 0xE1) and parse its length.
-	// Exit if both EXIF and XMP sections were parsed.
+	// Scan the segments, reading the length that starts each one.
+	// Exit once the EXIF, XMP and MPF sections were all parsed.
 	struct APP1S {
 		uint32_t& val;
 		inline APP1S(uint32_t& v) : val(v) {}
@@ -1018,7 +1049,7 @@ int EXIFInfo::parseFrom(EXIFStream& stream) {
 		inline operator uint32_t& () { return val; }
 		inline int operator () (int code=PARSE_ABSENT_DATA) const { return val&FIELD_ALL ? (int)PARSE_SUCCESS : code; }
 	} app1s(Fields);
-	while ((buf=stream.GetBuffer(2)) != NULL) {
+	while (!(app1s == FIELD_ALL && HasField(FIELD_ID_MPImages)) && (buf=stream.GetBuffer(2)) != NULL) {
 		// find next marker;
 		// in cases of markers appended after the compressed data,
 		// optional JM_START fill bytes may precede the marker
@@ -1027,7 +1058,6 @@ int EXIFInfo::parseFrom(EXIFStream& stream) {
 		uint8_t marker;
 		while ((marker=buf[0]) == JM_START && (buf=stream.GetBuffer(1)) != NULL);
 		// select marker
-		uint16_t sectionLength;
 		switch (marker) {
 		case 0x00:
 		case 0x01:
@@ -1041,15 +1071,23 @@ int EXIFInfo::parseFrom(EXIFStream& stream) {
 		case JM_RST6:
 		case JM_RST7:
 		case JM_SOI:
-			break;
+			continue; // a marker without a segment
 		case JM_SOS: // start of stream: and we're done
 		case JM_EOI: // no data? not good
 			return app1s();
+		}
+		uint16_t sectionLength;
+		if ((buf=stream.GetBuffer(2)) == NULL ||
+			(sectionLength=EntryParser::parse16(buf, false)) <= 2)
+			return app1s(PARSE_INVALID_JPEG);
+		sectionLength -= 2; // the length counts its own 2 bytes
+		switch (marker) {
 		case JM_APP1:
-			if ((buf=stream.GetBuffer(2)) == NULL)
-				return app1s(PARSE_INVALID_JPEG);
-			sectionLength = EntryParser::parse16(buf, false);
-			if (sectionLength <= 2 || (buf=stream.GetBuffer(sectionLength-=2)) == NULL)
+			// EXIF or XMP; once both were found, the scan only goes on for MPF
+			// and any further EXIF or XMP is skipped
+			if (app1s == FIELD_ALL)
+				break;
+			if ((buf=stream.GetBuffer(sectionLength)) == NULL)
 				return app1s(PARSE_INVALID_JPEG);
 			switch (int ret=parseFromEXIFSegment(buf, sectionLength)) {
 			case PARSE_ABSENT_DATA:
@@ -1058,8 +1096,7 @@ int EXIFInfo::parseFrom(EXIFStream& stream) {
 				case PARSE_ABSENT_DATA:
 					break;
 				case PARSE_SUCCESS:
-					if ((app1s|=FIELD_XMP) == FIELD_ALL)
-						return PARSE_SUCCESS;
+					app1s |= FIELD_XMP;
 					break;
 				default:
 					return app1s(ret); // some error
@@ -1067,20 +1104,32 @@ int EXIFInfo::parseFrom(EXIFStream& stream) {
 #endif // TINYEXIF_NO_XMP_SUPPORT
 				break;
 			case PARSE_SUCCESS:
-				if ((app1s|=FIELD_EXIF) == FIELD_ALL)
-					return PARSE_SUCCESS;
+				app1s |= FIELD_EXIF;
 				break;
 			default:
 				return app1s(ret); // some error
 			}
-			break;
-		default:
-			// skip the section
-			if ((buf=stream.GetBuffer(2)) == NULL ||
-				(sectionLength=EntryParser::parse16(buf, false)) <= 2 ||
-				!stream.SkipBuffer(sectionLength-2))
+			continue;
+		case JM_APP2:
+			// MPF; the first index found is used, and the other APP2 segments,
+			// e.g. ICC profiles, are skipped without being read
+			if (HasField(FIELD_ID_MPImages) || sectionLength <= 4)
+				break;
+			if ((buf=stream.GetBuffer(4)) == NULL)
 				return app1s(PARSE_INVALID_JPEG);
+			sectionLength -= 4;
+			if (!std::equal(buf, buf+4, "MPF"))
+				break;
+			if ((buf=stream.GetBuffer(sectionLength)) == NULL)
+				return app1s(PARSE_INVALID_JPEG);
+			// the TIFF header starts the bytes just read; a malformed index only
+			// leaves MPImages empty, as the image and its metadata are still valid
+			parseFromMPFSegment(buf, sectionLength, stream.GetPosition() - sectionLength);
+			continue;
 		}
+		// skip the section
+		if (!stream.SkipBuffer(sectionLength))
+			return app1s(PARSE_INVALID_JPEG);
 	}
 	return app1s();
 }
@@ -1124,11 +1173,12 @@ int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
 			return it != NULL;
 		}
 		const uint8_t* GetBuffer(unsigned desiredLength) override {
-			const uint8_t* const itNext(it+desiredLength);
-			if (itNext >= end)
+			// compare lengths, not pointers: it+desiredLength may lie past the end of the
+			// buffer, which is undefined behavior; a read may end exactly at the end
+			if (desiredLength > (size_t)(end - it))
 				return NULL;
 			const uint8_t* const begin(it);
-			it = itNext;
+			it += desiredLength;
 			return begin;
 		}
 		bool SkipBuffer(unsigned desiredLength) override {
@@ -1139,6 +1189,41 @@ int EXIFInfo::parseFrom(const uint8_t* buf, unsigned len) {
 	};
 	EXIFStreamBuffer stream(buf, len);
 	return parseFrom(stream);
+}
+
+//
+// Parse the TIFF header that starts at 'start' in 'buf', as found in the EXIF and the
+// MPF segments; on success, return PARSE_SUCCESS (0) with the byte order the header
+// states and the buffer offset of the first IFD. The header is 8 bytes:
+//  2 bytes: 'II' or 'MM' for Intel or Motorola byte alignment
+//  2 bytes: 0x002a
+//  4 bytes: offset of the first IFD, relative to the header start
+//
+static int ParseTIFFHeader(const uint8_t* buf, unsigned len, unsigned start, bool& alignIntel, unsigned& first_ifd) {
+	if ((uint64_t)start + 8 > len)
+		return PARSE_CORRUPT_DATA;
+	// The marker states the byte order of the file, never of the host: parse16() and
+	// parse32() assemble every value from its bytes, so they already give the same
+	// result on any CPU, and mixing in the host's byte order inverts them (#29)
+	if (buf[start] == 'I' && buf[start+1] == 'I')
+		alignIntel = true; // 1: Intel byte alignment (little-endian)
+	else
+	if (buf[start] == 'M' && buf[start+1] == 'M')
+		alignIntel = false; // 0: Motorola byte alignment (big-endian)
+	else
+		return PARSE_UNKNOWN_BYTEALIGN;
+	if (0x2a != EntryParser::parse16(buf + start + 2, alignIntel))
+		return PARSE_CORRUPT_DATA;
+	// the first IFD offset is relative to the TIFF header start and it is stored in the
+	// 4 bytes it has to skip, so anything below 4 points back into the TIFF header
+	const uint32_t first_ifd_offset = EntryParser::parse32(buf + start + 4, alignIntel);
+	if (first_ifd_offset < 4)
+		return PARSE_CORRUPT_DATA;
+	const uint64_t ifd = (uint64_t)start + first_ifd_offset;
+	if (ifd >= len)
+		return PARSE_CORRUPT_DATA;
+	first_ifd = (unsigned)ifd;
+	return PARSE_SUCCESS;
 }
 
 //
@@ -1163,45 +1248,11 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	if (!std::equal(buf, buf+offs, "Exif\0\0"))
 		return PARSE_ABSENT_DATA;
 
-	// Now parsing the TIFF header. The first two bytes are either "II" or
-	// "MM" for Intel or Motorola byte alignment. Sanity check by parsing
-	// the uint16_t that follows, making sure it equals 0x2a. The
-	// last 4 bytes are an offset into the first IFD, which are added to 
-	// the global offset counter. For this block, we expect the following
-	// minimum size:
-	//  2 bytes: 'II' or 'MM'
-	//  2 bytes: 0x002a
-	//  4 bytes: offset to first IDF
-	// -----------------------------
-	//  8 bytes
-	if (offs + 8 > len)
-		return PARSE_CORRUPT_DATA;
-	// The marker states the byte order of the file, never of the host: parse16() and
-	// parse32() assemble every value from its bytes, so they already give the same
-	// result on any CPU, and mixing in the host's byte order inverts them (#29)
-	bool alignIntel;
-	if (buf[offs] == 'I' && buf[offs+1] == 'I')
-		alignIntel = true; // 1: Intel byte alignment (little-endian)
-	else
-	if (buf[offs] == 'M' && buf[offs+1] == 'M')
-		alignIntel = false; // 0: Motorola byte alignment (big-endian)
-	else
-		return PARSE_UNKNOWN_BYTEALIGN;
 	const unsigned tiff_header_start = offs;
+	bool alignIntel;
+	if (const int ret = ParseTIFFHeader(buf, len, tiff_header_start, alignIntel, offs))
+		return ret;
 	EntryParser parser(buf, len, tiff_header_start, alignIntel);
-	offs += 2;
-	if (0x2a != EntryParser::parse16(buf + offs, alignIntel))
-		return PARSE_CORRUPT_DATA;
-	offs += 2;
-	// the first IFD offset is relative to the TIFF header start and it is stored in the
-	// 4 bytes it has to skip, so anything below 4 points back into the TIFF header
-	const uint32_t first_ifd_offset = EntryParser::parse32(buf + offs, alignIntel);
-	if (first_ifd_offset < 4)
-		return PARSE_CORRUPT_DATA;
-	const uint64_t first_ifd = (uint64_t)tiff_header_start + first_ifd_offset;
-	if (first_ifd >= len)
-		return PARSE_CORRUPT_DATA;
-	offs = (unsigned)first_ifd;
 
 	// Now parsing the first Image File Directory (IFD0, for the main image).
 	// An IFD consists of a variable number of 12-byte directory entries. The
@@ -1262,6 +1313,61 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	}
 
 	return PARSE_SUCCESS;
+}
+
+//
+// Parsing function for the index of a Multi-Picture Format (MPF, CIPA DC-007) file:
+// the APP2 segment "MPF\0", followed by a TIFF header of its own, with its own byte
+// order, and the MP Index IFD. Its MP Entry tag holds one 16-byte entry per image
+// stored in the file, this one first:
+//  4 bytes: attribute: flags (bits 27-31), image format (bits 24-26), MP type (bits 0-23)
+//  4 bytes: size of the image
+//  4 bytes: offset of the image, relative to the TIFF header; 0 for the first image
+//  4 bytes: entry numbers of two dependent images (not parsed)
+// The images are only listed, not read: they lie after this image, outside the buffer.
+//
+// PARAM: 'buf' start of the TIFF header, which follows the bytes "MPF\0".
+// PARAM: 'len' length of buffer
+// PARAM: 'offset' offset of the TIFF header from the start of the JPEG stream
+//
+int EXIFInfo::parseFromMPFSegment(const uint8_t* buf, unsigned len, uint64_t offset) {
+	bool alignIntel;
+	unsigned offs;
+	if (const int ret = ParseTIFFHeader(buf, len, 0, alignIntel, offs))
+		return ret;
+	EntryParser parser(buf, len, 0, alignIntel);
+	if (!parser.InBounds(offs, 2))
+		return PARSE_CORRUPT_DATA;
+	unsigned num_entries = EntryParser::parse16(buf + offs, alignIntel);
+	if (!parser.InBounds((uint64_t)offs + 2, 12 * num_entries))
+		return PARSE_CORRUPT_DATA;
+	parser.Init(offs+2);
+	while (num_entries-- > 0 && parser.ParseTag()) {
+		if (parser.GetTag() != 0xb002)
+			continue;
+		// MP Entry: the count is in bytes, so it bounds the entries by the segment size,
+		// at most 4095 of them, before anything is allocated
+		const uint32_t num_images(parser.GetLength() / 16);
+		const uint64_t entries(parser.GetSubIFD());
+		if (!parser.IsUndefined() || num_images == 0 || !parser.InBounds(entries, num_images * 16))
+			return PARSE_CORRUPT_DATA;
+		MPImages.resize(num_images);
+		for (uint32_t i=0; i<num_images; ++i) {
+			const uint8_t* const entry(buf + (size_t)entries + i * 16);
+			const uint32_t attribute(EntryParser::parse32(entry, alignIntel));
+			const uint32_t start(EntryParser::parse32(entry + 8, alignIntel));
+			MPImage_t& image(MPImages[i]);
+			image.Type   = attribute & 0x00ffffff;
+			image.Format = (attribute >> 24) & 0x07;
+			image.Flags  = (uint8_t)(attribute >> 27);
+			image.Length = EntryParser::parse32(entry + 4, alignIntel);
+			// 64bit, as the 32bit start counts from the header, not from the stream start
+			image.Offset = start == 0 ? 0 : offset + start;
+		}
+		SetField(FIELD_ID_MPImages);
+		return PARSE_SUCCESS;
+	}
+	return PARSE_ABSENT_DATA;
 }
 
 #ifndef TINYEXIF_NO_XMP_SUPPORT
@@ -1694,6 +1800,10 @@ bool EXIFInfo::GPano_t::isEquirectangular() const {
 		0 == strcasecmp(ProjectionType.c_str(), "spherical");
 }
 
+bool EXIFInfo::MPImage_t::isLargeThumbnail() const {
+	return (Type & 0xff0000) == 0x010000;
+}
+
 void EXIFInfo::clear() {
 	Fields = FIELD_NA;
 
@@ -1812,6 +1922,9 @@ void EXIFInfo::clear() {
 	MicroVideo.HasMotionPhoto = 0;
 	MicroVideo.MotionPhotoLength = 0;
 	MicroVideo.MotionPhotoMime = "";
+
+	// Multi-Picture Format
+	MPImages.clear();
 }
 
 } // namespace TinyEXIF

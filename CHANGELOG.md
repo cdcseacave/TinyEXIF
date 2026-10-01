@@ -20,6 +20,13 @@ this project uses [Semantic Versioning](https://semver.org/).
   `GeoLocation.SpeedX/Y/Z` when the DJI MakerNote has not, as on cameras that
   write no MakerNote speed (e.g. the Osmo 360). The MakerNote, being binary,
   still takes precedence.
+- Multi-Picture Format (MPF, CIPA DC-007) index: `MPImages` lists the images a
+  JPEG stores after its own, such as the preview of a panorama, the second view
+  of a stereo (`.MPO`) image or an HDR gain map, with the type, flags, offset
+  and length of each (`FIELD_ID_MPImages`). They are only located, never read;
+  the README shows how to read one safely and parse it in turn. To reach the
+  index, the scan no longer stops as soon as it has EXIF and XMP: it goes on to
+  the image data, skipping any further EXIF or XMP segment as before.
 
 ### Fixed
 - **A GPS receiver without a fix no longer yields a position.** Cameras write
@@ -52,6 +59,11 @@ this project uses [Semantic Versioning](https://semver.org/).
   were read with a parser that stopped at the slash, so `"144/2"` came back as
   144 instead of 72. They now go through the same rational parser as the other
   XMP numbers.
+- Parsing from memory, `parseFrom(data, length)`, refused a read ending exactly
+  at the end of the buffer, so a file whose last segment runs to its end parsed
+  differently than from a stream. The check also formed a pointer past the end
+  of the buffer before comparing it, which is undefined behavior. Found by
+  fuzzing the new MPF parser.
 - `TestSamples.py --update` aborted on the corpus's own error samples, mistaking
   the demo's 253..255 exit codes for signal deaths.
 

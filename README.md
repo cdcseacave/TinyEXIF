@@ -73,6 +73,33 @@ This API was added in 1.1.0 and can be feature-gated with the `TINYEXIF_VERSION`
 	#endif
 ```
 
+## Images stored after the main one
+
+A JPEG can carry more images after its own, listed by a Multi-Picture Format (MPF, CIPA DC-007)
+index: the preview of a large panorama, the second view of a stereo (`.MPO`) image, an HDR gain
+map. `MPImages` lists them in the index order, with the type, offset and length of each.
+The first entry is normally the image itself. TinyEXIF only locates them and never reads them,
+so their `Offset` and `Length` come straight from the file and must be checked against its
+size before use:
+
+```
+	std::ifstream file(path, std::ios::binary | std::ios::ate);
+	const uint64_t fileSize = (uint64_t)file.tellg();
+	file.seekg(0);
+	TinyEXIF::EXIFInfo imageEXIF(file);
+	for (const TinyEXIF::EXIFInfo::MPImage_t& image: imageEXIF.MPImages) {
+		if (!image.isLargeThumbnail() || image.Offset > fileSize || image.Length > fileSize - image.Offset)
+			continue;
+		std::vector<uint8_t> preview(image.Length);
+		file.clear();
+		file.seekg((std::streamoff)image.Offset);
+		if (file.read((char*)preview.data(), preview.size())) {
+			// a complete JPEG, which may carry metadata of its own
+			TinyEXIF::EXIFInfo previewEXIF(preview.data(), image.Length);
+		}
+	}
+```
+
 ## License
 
 MIT [License](https://github.com/cdcseacave/TinyEXIF/blob/master/LICENSE)
