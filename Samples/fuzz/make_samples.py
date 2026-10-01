@@ -430,6 +430,26 @@ def dji_makernote_little_endian():
 	]))
 
 
+def dji_speed_partial(reverse=False):
+	"""XMP fills missing MakerNote speeds but preserves its finite SpeedZ (1).
+
+	The MakerNote rejects non-finite X/Y. Its remaining Z must still win over
+	the XMP value (30), in either segment order; hasSpeed() alone cannot tell
+	which individual components are already present.
+	"""
+	payloads = (makernote_float_nonfinite(), xmp(
+		' rdf:about="DJI Meta Data"'
+		' xmlns:drone-dji="http://www.dji.com/drone-dji/1.0/"'
+		' drone-dji:FlightXSpeed="10"'
+		' drone-dji:FlightYSpeed="20"'
+		' drone-dji:FlightZSpeed="30"'))
+	return payloads[::-1] if reverse else payloads
+
+
+def dji_speed_partial_xmp_first():
+	return dji_speed_partial(reverse=True)
+
+
 # JPEG segments and the Multi-Picture Format (MPF, CIPA DC-007) index
 SOI, EOI = b'\xff\xd8', b'\xff\xd9'
 APP1, APP2, COM = 0xe1, 0xe2, 0xfe
@@ -552,6 +572,16 @@ def mpf_offset_wrap():
 	return SOI + segment(APP1, exif_image_size(640, 480)) + segment(APP2, index) + EOI
 
 
+def mpf_entry_partial():
+	"""A 17-byte MP Entry is not one complete 16-byte entry.
+
+	Only 16 bytes are stored. Rounding down the count silently accepts this
+	truncated index instead of checking every byte the tag declares.
+	"""
+	index = mpf([(MP_PRIMARY, 10, 0)], entry_bytes=17)
+	return SOI + segment(APP1, exif_image_size(640, 480)) + segment(APP2, index) + EOI
+
+
 SAMPLES = (
 	('poc-rational-oob.jpg', rational_oob),
 	('poc-makernote-oob.jpg', makernote_oob),
@@ -570,6 +600,8 @@ SAMPLES = (
 	('gps-signed-zero.jpg', gps_signed_zero),
 	('dji-speed-max-aperture.jpg', dji_speed_max_aperture),
 	('dji-makernote-little-endian.jpg', dji_makernote_little_endian),
+	('dji-speed-partial.jpg', dji_speed_partial),
+	('dji-speed-partial-xmp-first.jpg', dji_speed_partial_xmp_first),
 )
 
 # samples that need more than APP1 segments; their builders return the whole file
@@ -578,6 +610,7 @@ FILES = (
 	('mpf-stereo-big-endian.jpg', mpf_stereo_big_endian),
 	('poc-mpf-entry-oob.jpg', mpf_entry_oob),
 	('poc-mpf-offset-wrap.jpg', mpf_offset_wrap),
+	('poc-mpf-entry-partial.jpg', mpf_entry_partial),
 )
 
 

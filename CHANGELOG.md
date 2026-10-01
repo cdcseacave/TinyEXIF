@@ -36,6 +36,17 @@ this project uses [Semantic Versioning](https://semver.org/).
   range, described other values.
 
 ### Fixed
+- Shared-library ABI identity now changes with the new `EXIFInfo` layout: ABI
+  version 2 on Linux/macOS, and `TinyEXIF-2.dll` on Windows. Consumers must
+  rebuild with the 1.2.0 header; old binaries must not load the new library.
+- XMP flight speed fills each missing component individually, preserving a
+  finite DJI MakerNote speed even when another component is absent or invalid.
+- MPF entry byte counts must describe complete 16-byte entries; a truncated
+  count is rejected rather than rounded down to an apparently valid index.
+- The release workflow now runs the sample corpus for the tagged build before
+  publishing the release.
+- `BUILD_FUZZER=ON` now links the coverage runtime for the demo and shared
+  library too, so the documented build works with the demo enabled.
 - **A GPS receiver without a fix no longer yields a position.** Cameras write
   the position tags even then, usually all zeros, which placed the image at
   0°N 0°E. With `GPSStatus` `V` (measurement void) latitude, longitude and

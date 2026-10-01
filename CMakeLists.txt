@@ -56,7 +56,9 @@ message(STATUS "TinyEXIF version (from TinyEXIF.h): ${TinyEXIF_VERSION}")
 ################################
 # lib version is set in TinyEXIF.h; see above
 project(TinyEXIF VERSION ${TinyEXIF_VERSION})
-set(GENERIC_LIB_SOVERSION "1")
+# 1.2.0 adds data members to EXIFInfo, so binaries built with an older header
+# must not load this library. The ABI version is independent of the API version.
+set(GENERIC_LIB_SOVERSION "2")
 
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
@@ -100,6 +102,11 @@ set_target_properties(TinyEXIF PROPERTIES
 	SOVERSION "${GENERIC_LIB_SOVERSION}"
 	MSVC_RUNTIME_LIBRARY "${CMAKE_MSVC_RUNTIME_LIBRARY}"
 )
+# Windows does not use SOVERSION in the DLL name; give the incompatible DLL
+# (and its import library) a new name there as well.
+if(WIN32 AND BUILD_SHARED_LIBS)
+	set_target_properties(TinyEXIF PROPERTIES OUTPUT_NAME "TinyEXIF-${GENERIC_LIB_SOVERSION}")
+endif()
 
 target_include_directories(TinyEXIF PUBLIC
 	"$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}>"
@@ -130,6 +137,10 @@ if(BUILD_FUZZER)
 	# -fsanitize=fuzzer-no-link inserts the coverage callbacks without pulling in
 	# libFuzzer's main(), which belongs to the fuzzer executable alone.
 	target_compile_options(TinyEXIF PRIVATE -fsanitize=fuzzer-no-link)
+	# Every executable using the instrumented library needs the coverage runtime,
+	# including the demo, whose own main() must be kept. PUBLIC also supplies it
+	# when linking TinyEXIF itself as a shared library.
+	target_link_options(TinyEXIF PUBLIC -fsanitize=fuzzer-no-link)
 	add_executable(TinyEXIFfuzzer fuzz/fuzz_exif.cpp)
 	target_link_libraries(TinyEXIFfuzzer TinyEXIF)
 	target_compile_options(TinyEXIFfuzzer PRIVATE -fsanitize=fuzzer)

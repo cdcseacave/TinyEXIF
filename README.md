@@ -353,6 +353,11 @@ target does for you.
 **Version.** `TINYEXIF_VERSION_STRING` (`"1.2.0"`) and `TINYEXIF_VERSION`
 (major × 10000 + minor × 100 + patch, so `10200`) gate features added in later versions.
 
+**Binary compatibility.** 1.2.0 adds members to `EXIFInfo` and requires consumers to rebuild
+with the new header. The shared library uses ABI version 2 (`libTinyEXIF.so.2` on Linux,
+`libTinyEXIF.2.dylib` on macOS, `TinyEXIF-2.dll` with MSVC on Windows) to keep older binaries from
+loading an incompatible layout. The CMake target remains `TinyEXIF::TinyEXIF`.
+
 ## Testing
 
 `TestSamples.py` runs the demo on every sample under `Samples/` and compares its output with the

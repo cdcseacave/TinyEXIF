@@ -1360,7 +1360,8 @@ int EXIFInfo::parseFromMPFSegment(const uint8_t* buf, unsigned len, uint64_t off
 		// at most 4095 of them, before anything is allocated
 		const uint32_t num_images(parser.GetLength() / 16);
 		const uint64_t entries(parser.GetSubIFD());
-		if (!parser.IsUndefined() || num_images == 0 || !parser.InBounds(entries, num_images * 16))
+		if (!parser.IsUndefined() || num_images == 0 || parser.GetLength() % 16 != 0 ||
+			!parser.InBounds(entries, parser.GetLength()))
 			return PARSE_CORRUPT_DATA;
 		MPImages.resize(num_images);
 		for (uint32_t i=0; i<num_images; ++i) {
@@ -1585,11 +1586,12 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		SetFieldIf(FIELD_ID_Calibration_OpticalCenterY, ParseXMP::Value(document, "drone-dji:CalibratedOpticalCenterY", Calibration.OpticalCenterY));
 		// flight speed: the DJI MakerNote has it at binary precision and wins in either
 		// segment order, as it overwrites while this XMP text only fills in a missing one
-		if (!GeoLocation.hasSpeed()) {
+		if (!HasField(FIELD_ID_GeoLocation_SpeedX))
 			SetFieldIf(FIELD_ID_GeoLocation_SpeedX, ParseXMP::Value(document, "drone-dji:FlightXSpeed", GeoLocation.SpeedX));
+		if (!HasField(FIELD_ID_GeoLocation_SpeedY))
 			SetFieldIf(FIELD_ID_GeoLocation_SpeedY, ParseXMP::Value(document, "drone-dji:FlightYSpeed", GeoLocation.SpeedY));
+		if (!HasField(FIELD_ID_GeoLocation_SpeedZ))
 			SetFieldIf(FIELD_ID_GeoLocation_SpeedZ, ParseXMP::Value(document, "drone-dji:FlightZSpeed", GeoLocation.SpeedZ));
-		}
 		std::string dewarpData;
 		SetFieldIf(FIELD_ID_Distortion_DewarpFlag, ParseXMP::Value(document, "drone-dji:DewarpFlag", Distortion.DewarpFlag));
 		// DewarpData lands in a local: the fields it feeds are marked below, where they are written
