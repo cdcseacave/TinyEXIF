@@ -319,6 +319,29 @@ def xmp_nonfinite():
 	)
 
 
+def xmp_trailing_text():
+	"""ParseXMP::Value() and the tiff: integers: XMP numbers followed by other text.
+
+	strtod, strtoull and the sscanf behind tinyxml2's QueryUnsignedAttribute all
+	stop at the first character they can not use and report the number before it,
+	so "12junk" read as 12, "1e/2" as 1/2, and "-1" as 4294967295 for an unsigned
+	field. Each must now be absent, while surrounding whitespace stays accepted:
+	the calibrated focal length and the resolution unit are valid. An orientation
+	beyond 16 bits is out of range rather than truncated.
+	"""
+	return xmp(
+		' rdf:about="DJI Meta Data"'
+		' xmlns:drone-dji="http://www.dji.com/drone-dji/1.0/"'
+		' xmlns:tiff="http://ns.adobe.com/tiff/1.0/"'
+		' drone-dji:AbsoluteAltitude="12junk"'
+		' drone-dji:RelativeAltitude="1e/2"'
+		' drone-dji:CalibratedFocalLength=" 3666.5 "'
+		' drone-dji:DewarpFlag="1x"'
+		' tiff:ImageWidth="-1" tiff:ImageHeight="480px"'
+		' tiff:Orientation="70000" tiff:ResolutionUnit=" 2 "'
+	)
+
+
 # GPS IFD tags (EXIF 2.3, 4.6.6)
 GPS_LATITUDE_REF, GPS_LATITUDE = 1, 2
 GPS_LONGITUDE_REF, GPS_LONGITUDE = 3, 4
@@ -542,6 +565,7 @@ SAMPLES = (
 	('poc-apex-overflow.jpg', apex_overflow),
 	('poc-makernote-float-nonfinite.jpg', makernote_float_nonfinite),
 	('poc-xmp-nonfinite.jpg', xmp_nonfinite),
+	('poc-xmp-trailing-text.jpg', xmp_trailing_text),
 	('gps-void.jpg', gps_void),
 	('gps-signed-zero.jpg', gps_signed_zero),
 	('dji-speed-max-aperture.jpg', dji_speed_max_aperture),

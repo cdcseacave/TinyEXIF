@@ -66,14 +66,25 @@ namespace Tools {
 		}
 	}
 
-	// parse a decimal number out of untrusted XMP text; fails on text that does not
-	// start with one, on a value out of range, and on the "nan" and "inf" that strtod
-	// accepts as well, so that the result is always a finite number
+	// true if a number was parsed out of 'str' and only whitespace follows it, given the
+	// 'end' where strtod() or strtoull() stopped: they parse the longest prefix they can,
+	// so "12junk" would read as 12 and "1e/2" as 1/2 instead of being malformed
+	static bool isWholeNumber(const char* str, const char* end) {
+		if (end == str)
+			return false;
+		while (isspace((unsigned char)*end))
+			++end;
+		return *end == '\0';
+	}
+
+	// parse a decimal number out of untrusted XMP text; fails unless the whole text is
+	// one number, surrounding whitespace aside, on a value out of range, and on the "nan"
+	// and "inf" that strtod accepts as well, so that the result is always a finite number
 	static bool strToDouble(const char* str, double& value) {
 		char* end(NULL);
 		errno = 0;
 		const double parsed(strtod(str, &end));
-		if (end == str || errno == ERANGE || !std::isfinite(parsed))
+		if (!isWholeNumber(str, end) || errno == ERANGE || !std::isfinite(parsed))
 			return false;
 		value = parsed;
 		return true;
@@ -1430,9 +1441,10 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 		}
 		// same as previous function but with unsigned int results;
 		// values too large for uint32_t (a video item longer than 4GiB, for example) saturate
-		// at UINT32_MAX instead of silently wrapping, and text that starts with no digits at
-		// all is reported as absent instead of as a zero; strtoull, not strtoul, is used so
-		// the range check is meaningful where unsigned long is only 32 bits wide.
+		// at UINT32_MAX instead of silently wrapping, and text that is not one whole number,
+		// with no digits at all or with other text after them, is reported as absent instead
+		// of as a zero or as the digits alone; strtoull, not strtoul, is used so the range
+		// check is meaningful where unsigned long is only 32 bits wide.
 		// note UINT32_MAX doubles as the "absent" sentinel of seven fields fed from here -
 		// Distortion.DewarpFlag and the six GPano pixel counts - so for those a saturated
 		// value reads back as absent through their hasXxx(); fail-safe, but not distinguishable.
@@ -1470,7 +1482,7 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 			// base 10, not 0: these are decimal XMP integers, not C literals, so neither
 			// a 0x prefix nor a leading zero should change how they are read
 			const unsigned long long ullValue(strtoull(szValue, &szEnd, 10));
-			if (szEnd == szValue)
+			if (!Tools::isWholeNumber(szValue, szEnd))
 				return false;
 			value = (errno == ERANGE || ullValue > UINT32_MAX ? UINT32_MAX : (uint32_t)ullValue);
 			return true;
@@ -1535,24 +1547,25 @@ int EXIFInfo::parseFromXMPSegmentXML(const char* szXML, unsigned len) {
 
 	// Try parsing the XMP content for tiff details.
 	// these fill the same fields as their EXIF counterparts, so either source
-	// finding one counts as present; the resolutions are XMP rationals ("300/1"),
-	// which tinyxml2's QueryDoubleAttribute would cut at the slash
-	if (Orientation == 0) {
-		uint32_t _Orientation(0);
-		SetFieldIf(FIELD_ID_Orientation, document->QueryUnsignedAttribute("tiff:Orientation", &_Orientation) == tinyxml2::XML_SUCCESS);
-		Orientation = (uint16_t)_Orientation;
-	}
+	// finding one counts as present; they are all read by ParseXMP, like every other
+	// XMP number: tinyxml2's QueryDoubleAttribute would cut the XMP rationals of the
+	// resolutions ("300/1") at the slash, and its QueryUnsignedAttribute accepts text
+	// after the digits and wraps a negative value around; a value too large for the
+	// 16bit fields is out of range rather than truncated
+	uint32_t orientation(0), resolutionUnit(0);
+	if (Orientation == 0 &&
+		SetFieldIf(FIELD_ID_Orientation, ParseXMP::Value(document, "tiff:Orientation", orientation) && orientation <= UINT16_MAX))
+		Orientation = (uint16_t)orientation;
 	if (ImageWidth == 0 && ImageHeight == 0) {
-		SetFieldIf(FIELD_ID_ImageWidth, document->QueryUnsignedAttribute("tiff:ImageWidth", &ImageWidth) == tinyxml2::XML_SUCCESS);
-		if (!SetFieldIf(FIELD_ID_ImageHeight, document->QueryUnsignedAttribute("tiff:ImageHeight", &ImageHeight) == tinyxml2::XML_SUCCESS))
-			SetFieldIf(FIELD_ID_ImageHeight, document->QueryUnsignedAttribute("tiff:ImageLength", &ImageHeight) == tinyxml2::XML_SUCCESS);
+		SetFieldIf(FIELD_ID_ImageWidth, ParseXMP::Value(document, "tiff:ImageWidth", ImageWidth));
+		if (!SetFieldIf(FIELD_ID_ImageHeight, ParseXMP::Value(document, "tiff:ImageHeight", ImageHeight)))
+			SetFieldIf(FIELD_ID_ImageHeight, ParseXMP::Value(document, "tiff:ImageLength", ImageHeight));
 	}
 	if (XResolution == 0 && YResolution == 0 && ResolutionUnit == 0) {
 		SetFieldIf(FIELD_ID_XResolution, ParseXMP::Value(document, "tiff:XResolution", XResolution));
 		SetFieldIf(FIELD_ID_YResolution, ParseXMP::Value(document, "tiff:YResolution", YResolution));
-		uint32_t _ResolutionUnit(0);
-		SetFieldIf(FIELD_ID_ResolutionUnit, document->QueryUnsignedAttribute("tiff:ResolutionUnit", &_ResolutionUnit) == tinyxml2::XML_SUCCESS);
-		ResolutionUnit = (uint16_t)_ResolutionUnit;
+		if (SetFieldIf(FIELD_ID_ResolutionUnit, ParseXMP::Value(document, "tiff:ResolutionUnit", resolutionUnit) && resolutionUnit <= UINT16_MAX))
+			ResolutionUnit = (uint16_t)resolutionUnit;
 	}
 
 	// Try parsing the XMP content for supported maker's info.

@@ -59,6 +59,11 @@ this project uses [Semantic Versioning](https://semver.org/).
   were read with a parser that stopped at the slash, so `"144/2"` came back as
   144 instead of 72. They now go through the same rational parser as the other
   XMP numbers.
+- XMP numbers followed by other text were read as the number they start with:
+  `"12junk"` as 12 and the rational `"1e/2"` as 1/2. The `tiff:` integers, read
+  by tinyxml2, also turned `"-1"` into 4294967295 and truncated an orientation
+  beyond 16 bits. Every XMP number, the `tiff:` ones included, must now be the
+  whole text, surrounding whitespace aside, or it is left absent.
 - Parsing from memory, `parseFrom(data, length)`, refused a read ending exactly
   at the end of the buffer, so a file whose last segment runs to its end parsed
   differently than from a stream. The check also formed a pointer past the end
