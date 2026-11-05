@@ -191,10 +191,12 @@ private:
 	unsigned offs; // current offset into buffer
 	uint16_t tag, format;
 	uint32_t length;
+	std::vector<uint64_t> seenTags;
+	bool xmpParsed;
 
 public:
 	EntryParser(const uint8_t* _buf, unsigned _len, unsigned _tiff_header_start, bool _alignIntel)
-		: buf(_buf), len(_len), tiff_header_start(_tiff_header_start), alignIntel(_alignIntel), offs(0) {}
+		: buf(_buf), len(_len), tiff_header_start(_tiff_header_start), alignIntel(_alignIntel), offs(0), xmpParsed(false) {}
 
 	// Every read of buf must be validated by this: does the range [offset, offset+size)
 	// lie inside the buffer? Written as a subtraction so the check itself can not
@@ -208,6 +210,7 @@ public:
 		// ParseTag() steps forward by one entry before reading, so start one entry
 		// earlier; the wrap-around for _offs < 12 is undone by that same step
 		offs = _offs - 12;
+		seenTags.assign(1024, 0); // 65536 bits = 1024 uint64_t words
 	}
 
 	// Step to the next 12-byte IFD entry and read it;
@@ -222,11 +225,31 @@ public:
 		return true;
 	}
 
+	// Check if the current entry's tag was already seen in this IFD (first occurrence wins).
+	// Per TIFF 6.0: "No two entries in the same IFD may have the same Tag."
+	bool IsDuplicateTag() {
+		const size_t word = (size_t)tag / 64;
+		const uint64_t mask = (uint64_t)1 << (tag % 64);
+		if (word < seenTags.size()) {
+			if ((seenTags[word] & mask) != 0)
+				return true;
+			seenTags[word] |= mask;
+		}
+		return false;
+	}
+
+	bool HasParsedXMP() const { return xmpParsed; }
+	void SetParsedXMP() { xmpParsed = true; }
+
 	const uint8_t* GetBuffer() const { return buf; }
 	unsigned GetOffset() const { return offs; }
 	bool IsIntelAligned() const { return alignIntel; }
 	// a parser over the same buffer and TIFF header, reading in the given byte order
-	EntryParser WithByteOrder(bool intel) const { return EntryParser(buf, len, tiff_header_start, intel); }
+	EntryParser WithByteOrder(bool intel) const {
+		EntryParser p(buf, len, tiff_header_start, intel);
+		p.xmpParsed = xmpParsed;
+		return p;
+	}
 
 	uint16_t GetTag() const { return tag; }
 	uint32_t GetLength() const { return length; }
@@ -641,10 +664,13 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 	switch (parser.GetTag()) {
 	case 0x02bc:
 #ifndef TINYEXIF_NO_XMP_SUPPORT
-		// XMP Metadata (Adobe technote 9-14-02)
-		if (parser.IsUndefined()) {
+		// XMP Metadata (Adobe technote 9-14-02): parse at most once per EXIF segment
+		// and only if XMP was not already parsed from an earlier segment
+		if (parser.IsUndefined() && !parser.HasParsedXMP() && !(Fields & FIELD_XMP)) {
+			parser.SetParsedXMP();
 			const std::string strXML(parser.FetchString());
-			parseFromXMPSegmentXML(strXML.c_str(), (unsigned)strXML.length());
+			if (parseFromXMPSegmentXML(strXML.c_str(), (unsigned)strXML.length()) == PARSE_SUCCESS)
+				Fields |= FIELD_XMP;
 		}
 #endif // TINYEXIF_NO_XMP_SUPPORT
 		break;
@@ -742,8 +768,8 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 		break;
 
 	case 0x9214:
-		// Subject area
-		if (parser.IsShort() && parser.GetLength() > 1) {
+		// Subject area: 2, 3, or 4 coordinates per EXIF 2.32
+		if (parser.IsShort() && parser.GetLength() >= 2 && parser.GetLength() <= 4) {
 			// GetLength() is an attacker-controlled count; validate the whole array
 			// fits the buffer before sizing the vector to match it, rather than
 			// resizing first and relying on the per-element Fetch() bounds check
@@ -869,6 +895,8 @@ void EXIFInfo::parseIFDMakerNote(EntryParser& exif) {
 			while (--num_entries >= 0) {
 				if (!parser.ParseTag())
 					break;
+				if (parser.IsDuplicateTag())
+					continue;
 				switch (parser.GetTag()) {
 				case 3:
 					// SpeedX
@@ -1060,7 +1088,9 @@ int EXIFInfo::parseFrom(EXIFStream& input) {
 		inline operator uint32_t& () { return val; }
 		inline int operator () (int code=PARSE_ABSENT_DATA) const { return val&FIELD_ALL ? (int)PARSE_SUCCESS : code; }
 	} app1s(Fields);
-	while (!(app1s == FIELD_ALL && HasField(FIELD_ID_MPImages)) && (buf=stream.GetBuffer(2)) != NULL) {
+	bool hasEXIF(false);
+	bool hasXMP(false);
+	while (!(hasEXIF && (hasXMP || (app1s & FIELD_XMP)) && HasField(FIELD_ID_MPImages)) && (buf=stream.GetBuffer(2)) != NULL) {
 		// find next marker;
 		// in cases of markers appended after the compressed data,
 		// optional JM_START fill bytes may precede the marker
@@ -1096,30 +1126,34 @@ int EXIFInfo::parseFrom(EXIFStream& input) {
 		case JM_APP1:
 			// EXIF or XMP; once both were found, the scan only goes on for MPF
 			// and any further EXIF or XMP is skipped
-			if (app1s == FIELD_ALL)
+			if (hasEXIF && (hasXMP || (app1s & FIELD_XMP)))
 				break;
 			if ((buf=stream.GetBuffer(sectionLength)) == NULL)
 				return app1s(PARSE_INVALID_JPEG);
-			switch (int ret=parseFromEXIFSegment(buf, sectionLength)) {
-			case PARSE_ABSENT_DATA:
-#ifndef TINYEXIF_NO_XMP_SUPPORT
-				switch (ret=parseFromXMPSegment(buf, sectionLength)) {
-				case PARSE_ABSENT_DATA:
-					break;
-				case PARSE_SUCCESS:
-					app1s |= FIELD_XMP;
-					break;
-				default:
-					return app1s(ret); // some error
+			if (!hasEXIF) {
+				const int ret = parseFromEXIFSegment(buf, sectionLength);
+				if (ret == PARSE_SUCCESS) {
+					hasEXIF = true;
+					app1s |= FIELD_EXIF;
+					continue;
 				}
-#endif // TINYEXIF_NO_XMP_SUPPORT
-				break;
-			case PARSE_SUCCESS:
-				app1s |= FIELD_EXIF;
-				break;
-			default:
-				return app1s(ret); // some error
+				if (ret != PARSE_ABSENT_DATA)
+					return app1s(ret); // some error
 			}
+#ifndef TINYEXIF_NO_XMP_SUPPORT
+			if (!hasXMP && !(app1s & FIELD_XMP)) {
+				const int ret = parseFromXMPSegment(buf, sectionLength);
+				if (ret == PARSE_SUCCESS) {
+					hasXMP = true;
+					app1s |= FIELD_XMP;
+					continue;
+				}
+				if (ret != PARSE_ABSENT_DATA)
+					return app1s(ret); // some error
+				if (sectionLength >= 29 && std::equal(buf, buf+29, "http://ns.adobe.com/xap/1.0/\0"))
+					hasXMP = true;
+			}
+#endif // TINYEXIF_NO_XMP_SUPPORT
 			continue;
 		case JM_APP2:
 			// MPF; the first index found is used, and the other APP2 segments,
@@ -1284,6 +1318,8 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 	while (num_entries-- > 0) {
 		if (!parser.ParseTag())
 			break;
+		if (parser.IsDuplicateTag())
+			continue;
 		parseIFDImage(parser, exif_sub_ifd_offset, gps_sub_ifd_offset);
 	}
 
@@ -1300,6 +1336,8 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 		while (num_entries-- > 0) {
 			if (!parser.ParseTag())
 				break;
+			if (parser.IsDuplicateTag())
+				continue;
 			parseIFDExif(parser);
 		}
 	}
@@ -1317,6 +1355,8 @@ int EXIFInfo::parseFromEXIFSegment(const uint8_t* buf, unsigned len) {
 		while (num_entries-- > 0) {
 			if (!parser.ParseTag())
 				break;
+			if (parser.IsDuplicateTag())
+				continue;
 			if (!positionVoid || !IsGPSPositionTag(parser.GetTag()))
 				parseIFDGPS(parser);
 		}
