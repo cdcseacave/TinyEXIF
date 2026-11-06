@@ -17,6 +17,7 @@
 #include <cfloat>
 #include <vector>
 #include <algorithm>
+#include <bitset>
 #include <iostream>
 #include <sstream>
 
@@ -191,12 +192,11 @@ private:
 	unsigned offs; // current offset into buffer
 	uint16_t tag, format;
 	uint32_t length;
-	std::vector<uint64_t> seenTags;
-	bool xmpParsed;
+	std::bitset<65536> seenTags; // one bit per possible tag of the current IFD
 
 public:
 	EntryParser(const uint8_t* _buf, unsigned _len, unsigned _tiff_header_start, bool _alignIntel)
-		: buf(_buf), len(_len), tiff_header_start(_tiff_header_start), alignIntel(_alignIntel), offs(0), xmpParsed(false) {}
+		: buf(_buf), len(_len), tiff_header_start(_tiff_header_start), alignIntel(_alignIntel), offs(0) {}
 
 	// Every read of buf must be validated by this: does the range [offset, offset+size)
 	// lie inside the buffer? Written as a subtraction so the check itself can not
@@ -210,7 +210,7 @@ public:
 		// ParseTag() steps forward by one entry before reading, so start one entry
 		// earlier; the wrap-around for _offs < 12 is undone by that same step
 		offs = _offs - 12;
-		seenTags.assign(1024, 0); // 65536 bits = 1024 uint64_t words
+		seenTags.reset();
 	}
 
 	// Step to the next 12-byte IFD entry and read it;
@@ -228,27 +228,18 @@ public:
 	// Check if the current entry's tag was already seen in this IFD (first occurrence wins).
 	// Per TIFF 6.0: "No two entries in the same IFD may have the same Tag."
 	bool IsDuplicateTag() {
-		const size_t word = (size_t)tag / 64;
-		const uint64_t mask = (uint64_t)1 << (tag % 64);
-		if (word < seenTags.size()) {
-			if ((seenTags[word] & mask) != 0)
-				return true;
-			seenTags[word] |= mask;
-		}
+		if (seenTags.test(tag))
+			return true;
+		seenTags.set(tag);
 		return false;
 	}
-
-	bool HasParsedXMP() const { return xmpParsed; }
-	void SetParsedXMP() { xmpParsed = true; }
 
 	const uint8_t* GetBuffer() const { return buf; }
 	unsigned GetOffset() const { return offs; }
 	bool IsIntelAligned() const { return alignIntel; }
 	// a parser over the same buffer and TIFF header, reading in the given byte order
 	EntryParser WithByteOrder(bool intel) const {
-		EntryParser p(buf, len, tiff_header_start, intel);
-		p.xmpParsed = xmpParsed;
-		return p;
+		return EntryParser(buf, len, tiff_header_start, intel);
 	}
 
 	uint16_t GetTag() const { return tag; }
@@ -664,10 +655,10 @@ void EXIFInfo::parseIFDExif(EntryParser& parser) {
 	switch (parser.GetTag()) {
 	case 0x02bc:
 #ifndef TINYEXIF_NO_XMP_SUPPORT
-		// XMP Metadata (Adobe technote 9-14-02): parse at most once per EXIF segment
-		// and only if XMP was not already parsed from an earlier segment
-		if (parser.IsUndefined() && !parser.HasParsedXMP() && !(Fields & FIELD_XMP)) {
-			parser.SetParsedXMP();
+		// XMP Metadata (Adobe technote 9-14-02): IFD0 and the EXIF SubIFD are each read once
+		// per EXIF segment and repeated tags are skipped, so this runs at most twice per
+		// segment, and not at all once XMP was parsed from an earlier segment
+		if (parser.IsUndefined() && !(Fields & FIELD_XMP)) {
 			const std::string strXML(parser.FetchString());
 			if (parseFromXMPSegmentXML(strXML.c_str(), (unsigned)strXML.length()) == PARSE_SUCCESS)
 				Fields |= FIELD_XMP;
