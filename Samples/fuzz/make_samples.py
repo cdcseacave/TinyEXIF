@@ -342,6 +342,55 @@ def xmp_trailing_text():
 	)
 
 
+def parsestring_wrap():
+	"""EntryParser::parseString(): (base + data + num_components) wraps in 32-bit math.
+
+	In <= 1.0.3, the bounds check 'base + data + num_components <= len' was computed
+	in 32-bit arithmetic. When data is 0xa0000042 and num_components is 0x5ffffffa,
+	(6 + 0xa0000042 + 0x5ffffffa) mod 2^32 is 66, which passed '<= len' and read
+	out-of-bounds heap memory into Make/Model. Promoted to 64-bit in 1.1.0 (#26).
+	"""
+	return exif_payload(ifd([
+		entry(0x010f, FMT_ASCII, 0x5ffffffa, struct.pack('>I', 0xa0000042)),
+	]))
+
+
+def xmp_0x02bc_dos():
+	"""parseIFDExif(): repeated 0x02bc tags trigger unbounded XMP parsing.
+
+	One 64 KB APP1 segment can hold 2700 twelve-byte IFD entries all pointing to
+	the same embedded XMP packet. A parser without deduplication parses the packet
+	2700 times (~89 MB XML parsing per segment). The per-IFD duplicate tag filter
+	ensures it is parsed at most once in this IFD.
+	"""
+	num_entries = 2700
+	xml_base = b'<x:xmpmeta xmlns:x="adobe:ns:meta/"><rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"><rdf:Description rdf:about="DJI Meta Data" xmlns:drone-dji="http://www.dji.com/drone-dji/1.0/" drone-dji:AbsoluteAltitude="+100.0"/></rdf:RDF></x:xmpmeta><?xpacket end="w"?>'
+	xml = xml_base + b' ' * (32000 - len(xml_base))
+	data_offset = len(TIFF_HEADER) + 4 + 2 + 12 * num_entries + 4
+	entries = [entry(0x02bc, FMT_UNDEFINED, len(xml), struct.pack('>I', data_offset)) for _ in range(num_entries)]
+	body = struct.pack('>H', num_entries) + b''.join(entries) + struct.pack('>I', 0) + xml
+	return exif_payload(body)
+
+
+def ansi_escape():
+	"""main.cpp / TinyEXIFdemo: raw control bytes and escape sequences in string fields.
+
+	ESC (0x1b), BEL (0x07) and newlines in EXIF/XMP string fields can clear the terminal,
+	change window titles, or forge standalone log lines (CWE-150 / CWE-117) if printed
+	raw. The demo escapes all non-printable bytes and backslashes as \\xNN.
+	"""
+	payload = b'Safe\x1b[31mRed\x1b[0m\x07\nFORGED LOG RECORD'
+	xmp_payload = (
+		' xmlns:GPano="http://ns.google.com/photos/1.0/panorama/"'
+		' GPano:ProjectionType="equirectangular&#x1b;[32mGreen&#x1b;[0m&#x7;&#10;ANOTHER FORGED LINE"'
+	)
+	exif = exif_payload(ifd_at(len(TIFF_HEADER) + 4, [
+		(0x010e, FMT_ASCII, len(payload) + 1, payload + b'\x00'),
+		(0x0131, FMT_ASCII, len(payload) + 1, payload + b'\x00'),
+	]))
+	return (exif, xmp(xmp_payload))
+
+
 # GPS IFD tags (EXIF 2.3, 4.6.6)
 GPS_LATITUDE_REF, GPS_LATITUDE = 1, 2
 GPS_LONGITUDE_REF, GPS_LONGITUDE = 3, 4
@@ -596,6 +645,9 @@ SAMPLES = (
 	('poc-makernote-float-nonfinite.jpg', makernote_float_nonfinite),
 	('poc-xmp-nonfinite.jpg', xmp_nonfinite),
 	('poc-xmp-trailing-text.jpg', xmp_trailing_text),
+	('poc-parsestring-wrap.jpg', parsestring_wrap),
+	('poc-xmp-0x02bc-dos.jpg', xmp_0x02bc_dos),
+	('poc-ansi-escape.jpg', ansi_escape),
 	('gps-void.jpg', gps_void),
 	('gps-signed-zero.jpg', gps_signed_zero),
 	('dji-speed-max-aperture.jpg', dji_speed_max_aperture),

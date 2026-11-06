@@ -18,6 +18,28 @@
 #endif
 static_assert(sizeof(TINYEXIF_VERSION_STRING) > 1, "TINYEXIF_VERSION_STRING must be a non-empty string literal");
 
+// Print untrusted string metadata safely to avoid ANSI escape sequence injection
+// or log forging from malicious files (CWE-150 / CWE-117). Bytes in 0x20..0x7e
+// except '\' are printed as-is; control characters, newlines, and non-ASCII bytes
+// are escaped as \xNN.
+static void PrintEscaped(std::ostream& os, const std::string& value) {
+	for (unsigned char c : value) {
+		if (c >= 0x20 && c <= 0x7e && c != '\\')
+			os << (char)c;
+		else {
+			const char* const hex = "0123456789abcdef";
+			os << "\\x" << hex[c >> 4] << hex[c & 0x0f];
+		}
+	}
+}
+
+static void PrintEscaped(const char* label, const std::string& value) {
+	if (value.empty()) return;
+	std::cout << label;
+	PrintEscaped(std::cout, value);
+	std::cout << "\n";
+}
+
 int main(int argc, const char** argv)
 {
 	// the field list is optional so that the output above stays the same for
@@ -47,30 +69,27 @@ int main(int argc, const char** argv)
 		std::cout << "ImageResolution " << imageEXIF.ImageWidth << "x" << imageEXIF.ImageHeight << " pixels" << "\n";
 	if (imageEXIF.RelatedImageWidth || imageEXIF.RelatedImageHeight)
 		std::cout << "RelatedImageResolution " << imageEXIF.RelatedImageWidth << "x" << imageEXIF.RelatedImageHeight << " pixels" << "\n";
-	if (!imageEXIF.ImageDescription.empty())
-		std::cout << "Description " << imageEXIF.ImageDescription << "\n";
-	if (!imageEXIF.Make.empty() || !imageEXIF.Model.empty())
-		std::cout << "CameraModel " << imageEXIF.Make << " - " << imageEXIF.Model << "\n";
-	if (!imageEXIF.SerialNumber.empty())
-		std::cout << "SerialNumber " << imageEXIF.SerialNumber << "\n";
+	PrintEscaped("Description ", imageEXIF.ImageDescription);
+	if (!imageEXIF.Make.empty() || !imageEXIF.Model.empty()) {
+		std::cout << "CameraModel ";
+		PrintEscaped(std::cout, imageEXIF.Make);
+		std::cout << " - ";
+		PrintEscaped(std::cout, imageEXIF.Model);
+		std::cout << "\n";
+	}
+	PrintEscaped("SerialNumber ", imageEXIF.SerialNumber);
 	if (imageEXIF.Orientation)
 		std::cout << "Orientation " << imageEXIF.Orientation << "\n";
 	if (imageEXIF.XResolution || imageEXIF.YResolution || imageEXIF.ResolutionUnit)
 		std::cout << "Resolution " << imageEXIF.XResolution << "x" << imageEXIF.YResolution << " (" << imageEXIF.ResolutionUnit << ")\n";
 	if (imageEXIF.BitsPerSample)
 		std::cout << "BitsPerSample " << imageEXIF.BitsPerSample << "\n";
-	if (!imageEXIF.Software.empty())
-		std::cout << "Software " << imageEXIF.Software << "\n";
-	if (!imageEXIF.DateTime.empty())
-		std::cout << "DateTime " << imageEXIF.DateTime << "\n";
-	if (!imageEXIF.DateTimeOriginal.empty())
-		std::cout << "DateTimeOriginal " << imageEXIF.DateTimeOriginal << "\n";
-	if (!imageEXIF.DateTimeDigitized.empty())
-		std::cout << "DateTimeDigitized " << imageEXIF.DateTimeDigitized << "\n";
-	if (!imageEXIF.SubSecTimeOriginal.empty())
-		std::cout << "SubSecTimeOriginal " << imageEXIF.SubSecTimeOriginal << "\n";
-	if (!imageEXIF.Copyright.empty())
-		std::cout << "Copyright " << imageEXIF.Copyright << "\n";
+	PrintEscaped("Software ", imageEXIF.Software);
+	PrintEscaped("DateTime ", imageEXIF.DateTime);
+	PrintEscaped("DateTimeOriginal ", imageEXIF.DateTimeOriginal);
+	PrintEscaped("DateTimeDigitized ", imageEXIF.DateTimeDigitized);
+	PrintEscaped("SubSecTimeOriginal ", imageEXIF.SubSecTimeOriginal);
+	PrintEscaped("Copyright ", imageEXIF.Copyright);
 	std::cout << "ExposureTime " << std::setprecision(10) << imageEXIF.ExposureTime << " s" << "\n";
 	std::cout << "FNumber " << imageEXIF.FNumber << "\n";
 	std::cout << "ExposureProgram " << imageEXIF.ExposureProgram << "\n";
@@ -108,8 +127,13 @@ int main(int argc, const char** argv)
 	std::cout << "LensInfo.FocalPlaneXResolution " << std::setprecision(10) << imageEXIF.LensInfo.FocalPlaneXResolution << "\n";
 	std::cout << "LensInfo.FocalPlaneYResolution " << std::setprecision(10) << imageEXIF.LensInfo.FocalPlaneYResolution << "\n";
 	std::cout << "LensInfo.FocalPlaneResolutionUnit " << imageEXIF.LensInfo.FocalPlaneResolutionUnit << "\n";
-	if (!imageEXIF.LensInfo.Make.empty() || !imageEXIF.LensInfo.Model.empty())
-		std::cout << "LensInfo.Model " << imageEXIF.LensInfo.Make << " - " << imageEXIF.LensInfo.Model << "\n";
+	if (!imageEXIF.LensInfo.Make.empty() || !imageEXIF.LensInfo.Model.empty()) {
+		std::cout << "LensInfo.Model ";
+		PrintEscaped(std::cout, imageEXIF.LensInfo.Make);
+		std::cout << " - ";
+		PrintEscaped(std::cout, imageEXIF.LensInfo.Model);
+		std::cout << "\n";
+	}
 	if (imageEXIF.GeoLocation.hasLatLon()) {
 		std::cout << "GeoLocation.Latitude " << std::setprecision(10) << imageEXIF.GeoLocation.Latitude << "\n";
 		std::cout << "GeoLocation.Longitude " << std::setprecision(10) << imageEXIF.GeoLocation.Longitude << "\n";
@@ -134,14 +158,13 @@ int main(int argc, const char** argv)
 		std::cout << "GeoLocation.GPSAccuracy XY " << imageEXIF.GeoLocation.AccuracyXY << " m" << " Z " << imageEXIF.GeoLocation.AccuracyZ << " m" << "\n";
 	std::cout << "GeoLocation.GPSDOP " << imageEXIF.GeoLocation.GPSDOP << "\n";
 	std::cout << "GeoLocation.GPSDifferential " << imageEXIF.GeoLocation.GPSDifferential << "\n";
-	if (!imageEXIF.GeoLocation.GPSMapDatum.empty())
-		std::cout << "GeoLocation.GPSMapDatum " << imageEXIF.GeoLocation.GPSMapDatum << "\n";
-	if (!imageEXIF.GeoLocation.GPSTimeStamp.empty())
-		std::cout << "GeoLocation.GPSTimeStamp " << imageEXIF.GeoLocation.GPSTimeStamp << "\n";
-	if (!imageEXIF.GeoLocation.GPSDateStamp.empty())
-		std::cout << "GeoLocation.GPSDateStamp " << imageEXIF.GeoLocation.GPSDateStamp << "\n";
+	PrintEscaped("GeoLocation.GPSMapDatum ", imageEXIF.GeoLocation.GPSMapDatum);
+	PrintEscaped("GeoLocation.GPSTimeStamp ", imageEXIF.GeoLocation.GPSTimeStamp);
+	PrintEscaped("GeoLocation.GPSDateStamp ", imageEXIF.GeoLocation.GPSDateStamp);
 	if (!imageEXIF.GPano.ProjectionType.empty()) {
-		std::cout << "GPano.ProjectionType " << imageEXIF.GPano.ProjectionType << "\n";
+		std::cout << "GPano.ProjectionType ";
+		PrintEscaped(std::cout, imageEXIF.GPano.ProjectionType);
+		std::cout << "\n";
 		std::cout << "GPano.isEquirectangular " << (imageEXIF.GPano.isEquirectangular() ? "true" : "false") << "\n";
 	}
 	if (imageEXIF.GPano.hasPoseHeadingDegrees())
@@ -174,8 +197,7 @@ int main(int argc, const char** argv)
 	}
 	if (imageEXIF.MicroVideo.HasMotionPhoto) {
 		std::cout << "MicroVideo.MotionPhotoLength " << imageEXIF.MicroVideo.MotionPhotoLength << "\n";
-		if (!imageEXIF.MicroVideo.MotionPhotoMime.empty())
-			std::cout << "MicroVideo.MotionPhotoMime " << imageEXIF.MicroVideo.MotionPhotoMime << "\n";
+		PrintEscaped("MicroVideo.MotionPhotoMime ", imageEXIF.MicroVideo.MotionPhotoMime);
 	}
 	// numbered from 1 like exiftool does; the first image is normally this one
 	for (size_t i=0; i<imageEXIF.MPImages.size(); ++i) {

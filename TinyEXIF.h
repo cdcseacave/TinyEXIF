@@ -16,7 +16,7 @@
 
 #define TINYEXIF_MAJOR_VERSION 1
 #define TINYEXIF_MINOR_VERSION 2
-#define TINYEXIF_PATCH_VERSION 0
+#define TINYEXIF_PATCH_VERSION 1
 
 // TINYEXIF_VERSION_STRING and TINYEXIF_VERSION are derived from the three
 // macros above -- change only MAJOR/MINOR/PATCH above, never these directly.
@@ -282,6 +282,11 @@ private:
 
 public:
 	// Data fields
+	// String fields below contain raw bytes parsed directly from the file (with
+	// only NUL bytes and trailing spaces stripped in EXIF ASCII fields). Callers
+	// that print or log them should escape control bytes, escape sequences, and
+	// newlines (e.g. \xNN) to prevent ANSI escape injection (CWE-150) or log
+	// forging (CWE-117).
 	uint32_t Fields;                    // Store if EXIF and/or XMP data fields are available
 	uint32_t ImageWidth;                // Image width reported in EXIF data
 	uint32_t ImageHeight;               // Image height reported in EXIF data

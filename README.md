@@ -35,6 +35,18 @@ to extend with any missing EXIF or XMP field.
 #include <fstream>  // std::ifstream
 #include <vector>   // std::vector
 
+// Helper to safely print untrusted metadata strings (prevents ANSI escape / log injection)
+static void PrintEscaped(std::ostream& os, const std::string& val) {
+	for (unsigned char c : val) {
+		if (c >= 0x20 && c <= 0x7e && c != '\\')
+			os << (char)c;
+		else {
+			const char* const hex = "0123456789abcdef";
+			os << "\\x" << hex[c >> 4] << hex[c & 0x0f];
+		}
+	}
+}
+
 int main(int argc, const char** argv) {
 	if (argc != 2) {
 		std::cout << "Usage: TinyEXIF <image_file>" << std::endl;
@@ -46,12 +58,15 @@ int main(int argc, const char** argv) {
 
 	// parse image EXIF and XMP metadata
 	TinyEXIF::EXIFInfo imageEXIF(istream);
-	if (imageEXIF.Fields)
-		std::cout
-			<< "Image Description " << imageEXIF.ImageDescription << "\n"
-			<< "Image Resolution " << imageEXIF.ImageWidth << "x" << imageEXIF.ImageHeight << " pixels\n"
-			<< "Camera Model " << imageEXIF.Make << " - " << imageEXIF.Model << "\n"
-			<< "Focal Length " << imageEXIF.FocalLength << " mm" << std::endl;
+	if (imageEXIF.Fields) {
+		std::cout << "Image Description ";
+		PrintEscaped(std::cout, imageEXIF.ImageDescription);
+		std::cout << "\nImage Resolution " << imageEXIF.ImageWidth << "x" << imageEXIF.ImageHeight << " pixels\nCamera Model ";
+		PrintEscaped(std::cout, imageEXIF.Make);
+		std::cout << " - ";
+		PrintEscaped(std::cout, imageEXIF.Model);
+		std::cout << "\nFocal Length " << imageEXIF.FocalLength << " mm" << std::endl;
+	}
 	return 0;
 }
 ```
@@ -309,6 +324,13 @@ TinyEXIF is written to parse files that it did not create:
 - A malformed value is left absent rather than guessed: every floating point field is finite, an
   XMP number must be the whole property text, and a value out of its field's range is dropped,
   or clamped where `TinyEXIF.h` says so (ISO, and XMP integers beyond 32 bits).
+- String fields contain raw bytes parsed directly from the file (with only NULs and trailing spaces
+  stripped in EXIF ASCII fields) and are never silently altered. Callers writing them to terminals
+  or line-oriented logs should escape control characters, escape sequences, and newlines to prevent
+  ANSI escape injection (CWE-150) or log forging (CWE-117); `main.cpp` demonstrates safe escaping.
+- Algorithmic complexity is bounded: duplicate tags within each IFD are filtered in $O(1)$ (first
+  occurrence wins), so XMP is parsed at most twice per segment and never again once it succeeds,
+  and multi-segment scans skip redundant metadata segments without re-parsing.
 - A crafted regression corpus under `Samples/fuzz/` pins each of these, and CI runs the whole corpus
   under AddressSanitizer and UndefinedBehaviorSanitizer, on a big-endian CPU, and with gcc warnings
   as errors. A libFuzzer harness is in `fuzz/`.
@@ -350,8 +372,8 @@ target_link_libraries(my_app PRIVATE TinyEXIF::TinyEXIF)
 On Windows, a program using TinyEXIF as a DLL needs `TINYEXIF_IMPORT` defined, which the CMake
 target does for you.
 
-**Version.** `TINYEXIF_VERSION_STRING` (`"1.2.0"`) and `TINYEXIF_VERSION`
-(major × 10000 + minor × 100 + patch, so `10200`) gate features added in later versions.
+**Version.** `TINYEXIF_VERSION_STRING` (`"1.2.1"`) and `TINYEXIF_VERSION`
+(major × 10000 + minor × 100 + patch, so `10201`) gate features added in later versions.
 
 **Binary compatibility.** 1.2.0 adds members to `EXIFInfo` and requires consumers to rebuild
 with the new header. The shared library uses ABI version 2 (`libTinyEXIF.so.2` on Linux,

@@ -11,6 +11,39 @@ this project uses [Semantic Versioning](https://semver.org/).
      <version>" form as a transitional fallback, so a tag pushed before the
      rename still works -- but renaming first keeps this file accurate.) -->
 
+## [1.2.1] - 2026-11-05
+
+### Fixed
+- Multi-segment APP1 scans now skip redundant EXIF or XMP segments once each
+  type has been parsed or attempted, preventing unbounded parsing loops on files
+  with hundreds of stacked metadata segments.
+- `SubjectArea` (EXIF 0x9214) component counts are now strictly bounded to 2..4
+  coordinates per EXIF 2.32, rejecting unvalidated counts beyond the standard.
+
+### Security
+- **CPU-exhaustion DoS via repeated XMP parsing of EXIF tag 0x02bc (CWE-407):**
+  An IFD carrying thousands of duplicate 0x02bc entries pointing to an embedded
+  XMP packet caused a full tinyxml2 XML document parse for every entry (~1,365x
+  amplification). An O(1) per-IFD duplicate tag filter now ensures
+  first-occurrence-wins per IFD, so XMP metadata is parsed at most once in IFD0
+  and once in the EXIF SubIFD of a segment, and never again once it succeeds.
+  Reported by Ruben Arumugam Gunavathy (@ruben0315R).
+  (GHSA-q9rg-x94g-mgvq)
+- **Terminal escape and log injection in the demo and usage example (CWE-150, CWE-117):**
+  Unsanitized string fields printed directly to stdout in `main.cpp` (`TinyEXIFdemo`)
+  and the README example allowed crafted JPEGs to inject ANSI escape sequences,
+  terminal bell (BEL), or newlines forging log records. The demo now escapes all
+  control bytes, escape sequences, newlines, and non-ASCII characters as `\xNN`,
+  and string fields are explicitly documented as untrusted file bytes. Reported by
+  Ruben Arumugam Gunavathy (@ruben0315R). (GHSA-mvp9-qv42-59wc)
+- **Advisory description enrichment (GHSA-jqj2-8c2j-gx82 / CVE-2026-38332):**
+  Independent audit by Xiang Chen (@x14ngch3n) of embedded TinyEXIF <= 1.0.3
+  verified three additional input-reachable memory-safety sites in <= 1.0.3 already
+  hardened in 1.1.0: `parseString` additive 32-bit wraparound heap disclosure
+  (`c1_make_wrap.jpg`), indexed `Fetch(double&, idx)` out-of-bounds read, and
+  MakerNote read-before-check SIGSEGV. Regression fixtures added to `Samples/fuzz/`.
+  Credited to Xiang Chen. (GHSA-q2rq-hcx2-q53x)
+
 ## [1.2.0] - 2026-10-01
 
 ### Added
